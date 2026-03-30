@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/engine",
+    "crates/tauri-app",
     "crates/mlx-sys",
     "crates/py-bindings",
     "crates/node-bindings",
