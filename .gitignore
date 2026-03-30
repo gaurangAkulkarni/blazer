@@ -1,0 +1,27 @@
+# Rust
+target/
+*.rs.bk
+
+# Node
+node_modules/
+dist/
+out/
+*.node
+
+# Electron build output
+playground/dist/
+playground/out/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

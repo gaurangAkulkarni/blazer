@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/engine",
+    "crates/mlx-sys",
+    "crates/py-bindings",
+    "crates/node-bindings",
+]
+resolver = "2"

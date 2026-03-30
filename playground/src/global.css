@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-white text-gray-900 antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full;
+  }
+}
+
+@layer components {
+  .code-block {
+    @apply rounded-lg overflow-hidden text-sm font-mono border border-gray-200;
+  }
+  .code-block pre {
+    @apply p-4 overflow-x-auto;
+    background: #f5f5f7 !important;
+    color: #1d1d1f !important;
+  }
+}
