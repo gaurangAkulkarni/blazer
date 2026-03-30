@@ -145,7 +145,9 @@ export function SettingsPanel({ settings, onUpdate, onClose }: Props) {
                       {skill.description && <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{skill.description}</p>}
                     </div>
                     {!skill.builtIn && (
-                      <button onClick={(e) => { e.stopPropagation(); deleteCustomSkill(skill.id) }} className="text-gray-300 hover:text-red-400 transition text-xs shrink-0" title="Delete">✕</button>
+                      <button onClick={(e) => { e.stopPropagation(); deleteCustomSkill(skill.id) }} className="text-gray-300 hover:text-red-400 transition shrink-0 p-0.5 rounded" title="Delete skill">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
                     )}
                   </div>
                 ))}

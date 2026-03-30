@@ -85,10 +85,23 @@ export function InputBar({ onSend, disabled, loadedFiles, onRemoveFile, onReplac
       <span className="font-medium">{f.name}</span>
       {onConvert && (f.ext === 'csv' || f.ext === 'tsv') && (
         <button onClick={onConvert} disabled={converting.has(f.path)} className="opacity-60 hover:opacity-100 ml-0.5 text-blue-600 hover:text-blue-800 disabled:opacity-30" title="Convert to Parquet">
-          {converting.has(f.path) ? '⏳' : '⇒ parquet'}
+          {converting.has(f.path) ? (
+            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="animate-spin">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+          ) : (
+            <>
+              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+              </svg>
+              <span>parquet</span>
+            </>
+          )}
         </button>
       )}
-      <button onClick={onRemove} className="opacity-50 hover:opacity-100 ml-0.5">&times;</button>
+      <button onClick={onRemove} className="opacity-50 hover:opacity-100 ml-0.5 flex items-center" title="Remove">
+        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     </span>
   )
 

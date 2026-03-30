@@ -9,9 +9,9 @@ out/
 *.node
 
 # Tauri build output
-crates/tauri-app/ui/dist/
-crates/tauri-app/ui/node_modules/
-crates/tauri-app/gen/
+playground/ui/dist/
+playground/ui/node_modules/
+playground/gen/
 
 # Environment
 .env
