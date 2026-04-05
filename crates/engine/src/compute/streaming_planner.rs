@@ -1,4 +1,7 @@
-use crate::compute::streaming::*;
+use crate::compute::streaming::{
+    DistinctStream, FilterStream, LimitStream, PartialAggStream, Pipeline,
+    ProjectStream, SortStream, WithColumnsStream,
+};
 use crate::dataframe::DataFrame;
 use crate::dataset::collect_files;
 use crate::error::{BlazeError, Result};
@@ -42,7 +45,9 @@ impl StreamingPlanner {
             }
             LogicalPlan::WithColumns { input, exprs } => {
                 Self::collect_operators(input, pipeline, ram_budget)?;
-                pipeline.add_op(Box::new(ProjectStream::new(exprs.clone())));
+                // WithColumnsStream adds new columns while preserving originals,
+                // unlike ProjectStream which replaces all columns.
+                pipeline.add_op(Box::new(WithColumnsStream::new(exprs.clone())));
                 Ok(())
             }
             LogicalPlan::GroupBy {
@@ -71,6 +76,11 @@ impl StreamingPlanner {
             LogicalPlan::Limit { input, n } => {
                 Self::collect_operators(input, pipeline, ram_budget)?;
                 pipeline.add_op(Box::new(LimitStream::new(*n)));
+                Ok(())
+            }
+            LogicalPlan::Distinct { input } => {
+                Self::collect_operators(input, pipeline, ram_budget)?;
+                pipeline.add_op(Box::new(DistinctStream::new()));
                 Ok(())
             }
             _ => Err(BlazeError::InvalidOperation(format!(
@@ -116,25 +126,92 @@ impl StreamingPlanner {
                 n_rows: _,
                 ..
             }) => {
-                let files = match format {
-                    crate::dataset::FileFormat::Parquet => {
-                        collect_files(std::path::Path::new(root), "parquet")
-                    }
-                    crate::dataset::FileFormat::Csv => {
-                        collect_files(std::path::Path::new(root), "csv")
-                    }
-                    _ => Vec::new(),
+                let root_path = std::path::Path::new(root);
+                let ext = match format {
+                    crate::dataset::FileFormat::Parquet => "parquet",
+                    crate::dataset::FileFormat::Csv => "csv",
+                    _ => "parquet",
+                };
+                // collect_files only walks directories — handle single-file paths
+                // explicitly so that `scan_parquet("/some/file.parquet")` works.
+                let files = if root_path.is_file() {
+                    vec![root_path.to_path_buf()]
+                } else {
+                    collect_files(root_path, ext)
                 };
 
                 let mut stream = ParquetStream::new(files);
                 if let Some(proj) = projection {
                     stream = stream.with_projection(proj.clone());
                 }
+                // Pushdown: if the plan contains a Limit node, tell the
+                // parquet reader to stop decompressing pages after that many
+                // rows.  This mirrors what DuckDB does and shrinks
+                // `SELECT … LIMIT 10` from seconds to milliseconds by never
+                // reading the bulk of the row group.
+                if let Some(n) = Self::find_limit(plan) {
+                    stream = stream.with_row_limit(n);
+                }
                 Ok(Box::new(stream))
             }
             _ => Err(BlazeError::InvalidOperation(
                 "Could not find a source node in the plan".into(),
             )),
+        }
+    }
+
+    /// Return the Limit n to push to the parquet page reader, if and only if
+    /// the path from the Limit node to the DatasetScan is **clean** — i.e.
+    /// contains only column-projection operators (Select, WithColumns) with no
+    /// row-altering barriers in between.
+    ///
+    /// # Why barriers matter
+    ///
+    /// Pushing `n_rows = LIMIT` to the parquet reader is an optimisation that
+    /// tells the page decoder to stop decompressing once N rows have been
+    /// produced.  It is only safe when every row the parquet reader emits is
+    /// guaranteed to reach the output unchanged (or with only column pruning).
+    ///
+    /// Barriers that invalidate the pushdown:
+    ///
+    ///   Filter    — may drop rows, so reading N source rows yields < N output
+    ///               rows.  The limit must NOT be pushed down; all matching rows
+    ///               must be found first.
+    ///   Sort      — requires seeing every row to determine the correct top-N.
+    ///   GroupBy   — M input rows → G groups; limit on output ≠ limit on input.
+    ///   Distinct  — deduplicates; unique count ≠ source row count.
+    ///
+    /// The optimizer can hoist a Limit inside Select/WithColumns wrappers, so
+    /// we look through those to find an inner Limit node.
+    fn find_limit(plan: &LogicalPlan) -> Option<usize> {
+        match plan {
+            LogicalPlan::Limit { n, input } => {
+                // Only push when there is a clean column-projection-only path
+                // from this Limit to the underlying DatasetScan.
+                if Self::path_to_scan_is_clean(input) {
+                    Some(*n)
+                } else {
+                    None
+                }
+            }
+            // The optimizer can push Limit inside Select/WithColumns; look
+            // through them to find an inner Limit.
+            LogicalPlan::Select { input, .. }
+            | LogicalPlan::WithColumns { input, .. } => Self::find_limit(input),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` when `plan` is a DatasetScan (or DataFrameScan) reached
+    /// through zero or more column-projection nodes (Select, WithColumns).
+    /// Any other node — Filter, Sort, GroupBy, Distinct, … — returns `false`.
+    fn path_to_scan_is_clean(plan: &LogicalPlan) -> bool {
+        match plan {
+            LogicalPlan::DatasetScan { .. } | LogicalPlan::DataFrameScan { .. } => true,
+            LogicalPlan::Select { input, .. } | LogicalPlan::WithColumns { input, .. } => {
+                Self::path_to_scan_is_clean(input)
+            }
+            _ => false,
         }
     }
 
@@ -163,19 +240,21 @@ impl StreamingPlanner {
             | LogicalPlan::WithColumns { .. }
             | LogicalPlan::GroupBy { .. }
             | LogicalPlan::Sort { .. }
-            | LogicalPlan::Limit { .. } => {
-                // Check child too
+            | LogicalPlan::Limit { .. }
+            | LogicalPlan::Distinct { .. } => {
+                // Recurse into child for all single-input nodes.
                 match plan {
                     LogicalPlan::Filter { input, .. }
                     | LogicalPlan::Select { input, .. }
                     | LogicalPlan::WithColumns { input, .. }
                     | LogicalPlan::Sort { input, .. }
                     | LogicalPlan::GroupBy { input, .. }
-                    | LogicalPlan::Limit { input, .. } => Self::is_streamable(input),
+                    | LogicalPlan::Limit { input, .. }
+                    | LogicalPlan::Distinct { input } => Self::is_streamable(input),
                     _ => true,
                 }
             }
-            // Joins and Distinct cannot stream
+            // Joins cannot stream (require full materialisation of both sides).
             _ => false,
         }
     }

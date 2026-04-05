@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(export PATH=\"$HOME/.cargo/bin:$PATH\")",
+      "Bash(cargo check:*)",
+      "Bash(chmod +x /Users/gaurangkulkarani/Documents/Projects/01KvellDynamics/repositories/blazer/playground/scripts/build-native.sh)",
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)",
+      "Bash(npm install:*)",
+      "Bash(find /Users/gaurangkulkarani/Documents/Projects/01KvellDynamics/repositories/blazer/target/release -name *blazer_node* -o -name *blazer-node*)",
+      "Bash(ls -la /Users/gaurangkulkarani/Documents/Projects/01KvellDynamics/repositories/blazer/crates/node-bindings/*.node /Users/gaurangkulkarani/Documents/Projects/01KvellDynamics/repositories/blazer/crates/node-bindings/index.js /Users/gaurangkulkarani/Documents/Projects/01KvellDynamics/repositories/blazer/crates/node-bindings/index.d.ts)",
+      "Bash(npm run:*)",
+      "Bash(export PATH=\"/Users/gaurangkulkarani/.nvm/versions/node/v20.19.3/bin:$PATH\")",
+      "Bash(ls -la /Users/gaurangkulkarani/Documents/Projects/01KvellDynamics/repositories/blazer/crates/node-bindings/*.node)",
+      "Bash(npx napi:*)",
+      "Read(//Users/gaurangkulkarani/.cargo/bin/**)",
+      "Read(//usr/**)",
+      "Bash(export PATH=\"/Users/gaurangkulkarani/.nvm/versions/node/v20.19.3/bin:/Users/gaurangkulkarani/.cargo/bin:$PATH\")",
+      "Bash(node -e \":*)",
+      "Bash(cargo clean:*)",
+      "Bash(ls -la /Users/gaurangkulkarani/Documents/Projects/01KvellDynamics/repositories/blazer/target/release/libblazer_node*)",
+      "Bash(ls -la /Users/gaurangkulkarani/Documents/Projects/01KvellDynamics/repositories/blazer/crates/node-bindings/target/release/libblazer_node*)"
+    ]
+  }
+}

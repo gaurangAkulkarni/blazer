@@ -2,7 +2,7 @@ use napi_derive::napi;
 
 // Engine types aliased to avoid name conflicts with the napi structs below
 use blazer_engine::dataframe::DataFrame as EngineDataFrame;
-use blazer_engine::lazy::LazyFrame as EngineLazyFrame;
+use blazer_engine::lazy::{LazyFrame as EngineLazyFrame, JoinType};
 use blazer_engine::expr::{col as engine_col, lit as engine_lit, Expr as EngineExpr, SortOptions};
 use blazer_engine::dtype::DataType;
 
@@ -161,6 +161,55 @@ impl Expr {
     pub fn to_string_js(&self) -> String {
         format!("{}", self.inner)
     }
+
+    // ── Window / rolling ───────────────────────────────────────────────────
+
+    /// Broadcast an aggregate over partitions (window function).
+    ///
+    /// Example: `col("salary").mean().over([col("dept")])`
+    #[napi]
+    pub fn over(&self, partition_by: Vec<&Expr>) -> Expr {
+        let exprs: Vec<EngineExpr> = partition_by.into_iter().map(|e| e.inner.clone()).collect();
+        Expr { inner: self.inner.clone().over(exprs) }
+    }
+
+    /// Rolling mean over `windowSize` rows.
+    #[napi(js_name = "rollingMean")]
+    pub fn rolling_mean(&self, window_size: u32) -> Expr {
+        Expr { inner: self.inner.clone().rolling_mean(window_size as usize) }
+    }
+
+    // ── String operations ──────────────────────────────────────────────────
+
+    /// True where the string column contains `pattern` (substring).
+    #[napi(js_name = "strContains")]
+    pub fn str_contains(&self, pattern: String) -> Expr {
+        Expr { inner: self.inner.clone().str().contains(&pattern) }
+    }
+
+    /// True where the string column starts with `prefix`.
+    #[napi(js_name = "strStartsWith")]
+    pub fn str_starts_with(&self, prefix: String) -> Expr {
+        Expr { inner: self.inner.clone().str().starts_with(&prefix) }
+    }
+
+    /// True where the string column ends with `suffix`.
+    #[napi(js_name = "strEndsWith")]
+    pub fn str_ends_with(&self, suffix: String) -> Expr {
+        Expr { inner: self.inner.clone().str().ends_with(&suffix) }
+    }
+
+    /// Convert string column to UPPER CASE.
+    #[napi(js_name = "strToUppercase")]
+    pub fn str_to_uppercase(&self) -> Expr {
+        Expr { inner: self.inner.clone().str().to_uppercase() }
+    }
+
+    /// Convert string column to lower case.
+    #[napi(js_name = "strToLowercase")]
+    pub fn str_to_lowercase(&self) -> Expr {
+        Expr { inner: self.inner.clone().str().to_lowercase() }
+    }
 }
 
 // ──────────────────────────────── LazyFrame ───────────────────────────
@@ -212,6 +261,35 @@ impl LazyFrame {
         LazyFrame { inner: self.inner.clone().distinct() }
     }
 
+    /// Join with `other`.
+    ///
+    /// `how` must be one of `"inner"` (default), `"left"`, `"right"`,
+    /// `"outer"`, or `"cross"`.
+    #[napi]
+    pub fn join(
+        &self,
+        other: &LazyFrame,
+        left_on: Vec<&Expr>,
+        right_on: Vec<&Expr>,
+        how: Option<String>,
+    ) -> napi::Result<LazyFrame> {
+        let join_type = match how.as_deref().unwrap_or("inner") {
+            "inner"          => JoinType::Inner,
+            "left"           => JoinType::Left,
+            "right"          => JoinType::Right,
+            "outer" | "full" => JoinType::Outer,
+            "cross"          => JoinType::Cross,
+            other => return Err(napi::Error::from_reason(format!(
+                "Unknown join type '{}'. Use: inner, left, right, outer, cross", other
+            ))),
+        };
+        let left_on:  Vec<EngineExpr> = left_on.into_iter().map(|e| e.inner.clone()).collect();
+        let right_on: Vec<EngineExpr> = right_on.into_iter().map(|e| e.inner.clone()).collect();
+        Ok(LazyFrame {
+            inner: self.inner.clone().join(other.inner.clone(), left_on, right_on, join_type),
+        })
+    }
+
     #[napi]
     pub fn collect(&self) -> napi::Result<DataFrame> {
         let df = to_napi(self.inner.clone().collect())?;
@@ -227,6 +305,11 @@ impl LazyFrame {
     #[napi]
     pub fn explain(&self, optimized: Option<bool>) -> String {
         self.inner.clone().explain(optimized.unwrap_or(true))
+    }
+
+    #[napi(js_name = "explainStreaming")]
+    pub fn explain_streaming(&self) -> String {
+        self.inner.explain_streaming()
     }
 
     #[napi(js_name = "sinkParquet")]
@@ -359,6 +442,20 @@ impl DataFrame {
         Ok(DataFrame { inner: df })
     }
 
+    /// Write to a Parquet file; returns the number of rows written.
+    #[napi(js_name = "writeParquet")]
+    pub fn write_parquet(&self, path: String) -> napi::Result<u32> {
+        let rows = to_napi(self.inner.clone().lazy().sink_parquet(&path))?;
+        Ok(rows as u32)
+    }
+
+    /// Write to a CSV file; returns the number of rows written.
+    #[napi(js_name = "writeCsv")]
+    pub fn write_csv(&self, path: String) -> napi::Result<u32> {
+        let rows = to_napi(self.inner.clone().lazy().sink_csv(&path))?;
+        Ok(rows as u32)
+    }
+
     #[napi(js_name = "getSchema")]
     pub fn get_schema(&self) -> Vec<SchemaField> {
         self.inner
@@ -424,6 +521,23 @@ pub fn read_parquet(path: String) -> napi::Result<DataFrame> {
 #[napi(js_name = "scanParquet")]
 pub fn scan_parquet(path: String) -> LazyFrame {
     LazyFrame { inner: EngineLazyFrame::scan_parquet(&path) }
+}
+
+/// Create a lazy scan over a CSV file. Nothing is read until `.collect()` is called.
+#[napi(js_name = "scanCsv")]
+pub fn scan_csv(path: String) -> LazyFrame {
+    use blazer_engine::lazy::{LogicalPlan};
+    use blazer_engine::dataset::FileFormat;
+    LazyFrame {
+        inner: EngineLazyFrame::from_plan(LogicalPlan::DatasetScan {
+            root: path,
+            format: FileFormat::Csv,
+            projection: None,
+            partition_filters: vec![],
+            row_filters: None,
+            n_rows: None,
+        }),
+    }
 }
 
 #[napi(js_name = "writeParquet")]

@@ -132,9 +132,9 @@ impl ComputeBackend for CpuBackend {
     }
 }
 
-// TODO: MLX backend (macOS only, behind feature flag)
+// MLX backend re-export (macOS only, behind `mlx` feature flag).
 #[cfg(all(target_os = "macos", feature = "mlx"))]
-pub struct MlxBackend;
+pub use super::mlx_backend::MlxBackend;
 
 // TODO: CUDA backend (behind feature flag)
 
@@ -147,10 +147,7 @@ pub fn init_backend(pref: BackendPreference) {
     let backend: Box<dyn ComputeBackend> = match pref {
         BackendPreference::Cpu => Box::new(CpuBackend),
         #[cfg(all(target_os = "macos", feature = "mlx"))]
-        BackendPreference::Mlx => {
-            // TODO: Initialize MLX backend
-            Box::new(CpuBackend) // fallback for now
-        }
+        BackendPreference::Mlx => Box::new(MlxBackend),
         #[cfg(feature = "cuda")]
         BackendPreference::Cuda => {
             // TODO: Initialize CUDA backend

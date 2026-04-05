@@ -2,11 +2,14 @@
 name = "blazer-py"
 version = "0.1.0"
 edition = "2021"
+description = "Blazer DataFrame engine — Python bindings"
+license = "MIT"
 
 [lib]
 name = "blazer"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.21", features = ["extension-module", "abi3-py38"] }
+pyo3      = { version = "0.21", features = ["extension-module", "abi3-py38"] }
+arrow2    = { version = "0.18" }
 blazer-engine = { path = "../engine" }

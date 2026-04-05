@@ -2,5 +2,10 @@
 name = "mlx-sys"
 version = "0.1.0"
 edition = "2021"
+description = "Low-level FFI bindings to Apple MLX for the Blazer engine"
+license = "MIT"
+
+[build-dependencies]
+cc = "1"
 
 [dependencies]

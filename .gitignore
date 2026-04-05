@@ -2,15 +2,16 @@
 target/
 *.rs.bk
 
-# Node
+# Node / Vite
 node_modules/
 dist/
 out/
 *.node
 
-# Electron build output
-playground/dist/
-playground/out/
+# Tauri build output
+playground/ui/dist/
+playground/ui/node_modules/
+playground/gen/
 
 # Environment
 .env

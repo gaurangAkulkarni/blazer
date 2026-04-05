@@ -15,6 +15,8 @@ export declare function litBool(value: boolean): Expr
 export declare function readCsv(path: string): DataFrame
 export declare function readParquet(path: string): DataFrame
 export declare function scanParquet(path: string): LazyFrame
+/** Create a lazy scan over a CSV file. Nothing is read until `.collect()` is called. */
+export declare function scanCsv(path: string): LazyFrame
 export declare function writeParquet(df: DataFrame, path: string): void
 export declare class Expr {
   sum(): Expr
@@ -47,6 +49,24 @@ export declare class Expr {
    */
   cast(dtype: string): Expr
   toString(): string
+  /**
+   * Broadcast an aggregate over partitions (window function).
+   *
+   * Example: `col("salary").mean().over([col("dept")])`
+   */
+  over(partitionBy: Array<Expr>): Expr
+  /** Rolling mean over `windowSize` rows. */
+  rollingMean(windowSize: number): Expr
+  /** True where the string column contains `pattern` (substring). */
+  strContains(pattern: string): Expr
+  /** True where the string column starts with `prefix`. */
+  strStartsWith(prefix: string): Expr
+  /** True where the string column ends with `suffix`. */
+  strEndsWith(suffix: string): Expr
+  /** Convert string column to UPPER CASE. */
+  strToUppercase(): Expr
+  /** Convert string column to lower case. */
+  strToLowercase(): Expr
 }
 export declare class LazyFrame {
   filter(predicate: Expr): LazyFrame
@@ -56,9 +76,17 @@ export declare class LazyFrame {
   sort(by: string, descending?: boolean | undefined | null): LazyFrame
   limit(n: number): LazyFrame
   distinct(): LazyFrame
+  /**
+   * Join with `other`.
+   *
+   * `how` must be one of `"inner"` (default), `"left"`, `"right"`,
+   * `"outer"`, or `"cross"`.
+   */
+  join(other: LazyFrame, leftOn: Array<Expr>, rightOn: Array<Expr>, how?: string | undefined | null): LazyFrame
   collect(): DataFrame
   collectStreaming(): DataFrame
   explain(optimized?: boolean | undefined | null): string
+  explainStreaming(): string
   sinkParquet(path: string): number
   sinkCsv(path: string): number
   withStreamingBudget(bytes: number): LazyFrame
@@ -75,5 +103,15 @@ export declare class DataFrame {
   selectColumns(names: Array<string>): DataFrame
   toJSON(): string
   vstack(other: DataFrame): DataFrame
+  /** Write to a Parquet file; returns the number of rows written. */
+  writeParquet(path: string): number
+  /** Write to a CSV file; returns the number of rows written. */
+  writeCsv(path: string): number
   getSchema(): Array<SchemaField>
 }
+
+/**
+ * Wrap a JavaScript scalar as a literal Expr.
+ * Dispatches to litInt / litFloat / litStr / litBool based on the JS type.
+ */
+export declare function lit(value: number | string | boolean): Expr

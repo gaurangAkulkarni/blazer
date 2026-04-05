@@ -389,6 +389,25 @@ impl Series {
                 chunks: vec![Arc::new(result)],
             });
         }
+        // Boolean equality / inequality
+        if self.dtype == DataType::Boolean && other.dtype == DataType::Boolean {
+            let l = self.to_array();
+            let r = other.to_array();
+            let lp = l.as_any().downcast_ref::<BooleanArray>().unwrap();
+            let rp = r.as_any().downcast_ref::<BooleanArray>().unwrap();
+            let result: BooleanArray = match op {
+                "eq"  => comparison::eq(lp, rp),
+                "neq" => comparison::neq(lp, rp),
+                _ => return Err(BlazeError::TypeMismatch(format!(
+                    "Operator '{op}' is not supported for Boolean columns"
+                ))),
+            };
+            return Ok(Series {
+                name: self.name.clone(),
+                dtype: DataType::Boolean,
+                chunks: vec![Arc::new(result)],
+            });
+        }
         Err(BlazeError::TypeMismatch(format!(
             "Cannot compare {} with {}",
             self.dtype, other.dtype
@@ -421,13 +440,39 @@ impl Series {
 
     // ---- Aggregations ----
 
+    /// Sum all non-null values as f64.
+    ///
+    /// Dispatches directly on the native array type so we never allocate an
+    /// intermediate f64 array (which the old `cast_f64()` approach required).
+    /// The inner `sum()` call auto-vectorises with SIMD in release builds.
     pub fn sum_as_f64(&self) -> Result<f64> {
-        let arr = self.cast_f64()?.to_array();
-        let prim = arr
-            .as_any()
-            .downcast_ref::<PrimitiveArray<f64>>()
-            .unwrap();
-        Ok(prim.values().iter().sum())
+        let arr = self.to_array();
+        let v: f64 = match self.dtype() {
+            DataType::Float64 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<f64>>().unwrap();
+                a.values().iter().copied().sum()
+            }
+            DataType::Float32 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<f32>>().unwrap();
+                a.values().iter().map(|&v| v as f64).sum()
+            }
+            DataType::Int64 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<i64>>().unwrap();
+                a.values().iter().map(|&v| v as f64).sum()
+            }
+            DataType::Int32 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<i32>>().unwrap();
+                a.values().iter().map(|&v| v as f64).sum()
+            }
+            _ => {
+                // Unusual type: cast once to f64 then sum
+                let f = self.cast_f64()?;
+                let arr2 = f.to_array();
+                let a = arr2.as_any().downcast_ref::<PrimitiveArray<f64>>().unwrap();
+                a.values().iter().copied().sum()
+            }
+        };
+        Ok(v)
     }
 
     pub fn mean_as_f64(&self) -> Result<f64> {
@@ -439,30 +484,70 @@ impl Series {
         Ok(s / count as f64)
     }
 
+    /// Min of all non-null values as f64.
+    ///
+    /// Uses arrow2's `min_primitive` SIMD kernel on the native array type,
+    /// falling back to a typed fold for float types not covered by that kernel.
     pub fn min_as_f64(&self) -> Result<f64> {
-        let arr = self.cast_f64()?.to_array();
-        let prim = arr
-            .as_any()
-            .downcast_ref::<PrimitiveArray<f64>>()
-            .unwrap();
-        Ok(prim
-            .values()
-            .iter()
-            .copied()
-            .fold(f64::INFINITY, f64::min))
+        use arrow2::compute::aggregate as agg;
+        let arr = self.to_array();
+        let v: f64 = match self.dtype() {
+            DataType::Float64 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<f64>>().unwrap();
+                // min_primitive returns Option<T> for NativeType + PartialOrd
+                a.values().iter().copied().fold(f64::INFINITY, f64::min)
+            }
+            DataType::Float32 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<f32>>().unwrap();
+                a.values().iter().copied().fold(f32::INFINITY, f32::min) as f64
+            }
+            DataType::Int64 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<i64>>().unwrap();
+                agg::min_primitive(a).unwrap_or(i64::MAX) as f64
+            }
+            DataType::Int32 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<i32>>().unwrap();
+                agg::min_primitive(a).unwrap_or(i32::MAX) as f64
+            }
+            _ => {
+                let f = self.cast_f64()?;
+                let arr2 = f.to_array();
+                let a = arr2.as_any().downcast_ref::<PrimitiveArray<f64>>().unwrap();
+                a.values().iter().copied().fold(f64::INFINITY, f64::min)
+            }
+        };
+        Ok(v)
     }
 
+    /// Max of all non-null values as f64.
     pub fn max_as_f64(&self) -> Result<f64> {
-        let arr = self.cast_f64()?.to_array();
-        let prim = arr
-            .as_any()
-            .downcast_ref::<PrimitiveArray<f64>>()
-            .unwrap();
-        Ok(prim
-            .values()
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max))
+        use arrow2::compute::aggregate as agg;
+        let arr = self.to_array();
+        let v: f64 = match self.dtype() {
+            DataType::Float64 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<f64>>().unwrap();
+                a.values().iter().copied().fold(f64::NEG_INFINITY, f64::max)
+            }
+            DataType::Float32 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<f32>>().unwrap();
+                a.values().iter().copied().fold(f32::NEG_INFINITY, f32::max) as f64
+            }
+            DataType::Int64 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<i64>>().unwrap();
+                agg::max_primitive(a).unwrap_or(i64::MIN) as f64
+            }
+            DataType::Int32 => {
+                let a = arr.as_any().downcast_ref::<PrimitiveArray<i32>>().unwrap();
+                agg::max_primitive(a).unwrap_or(i32::MIN) as f64
+            }
+            _ => {
+                let f = self.cast_f64()?;
+                let arr2 = f.to_array();
+                let a = arr2.as_any().downcast_ref::<PrimitiveArray<f64>>().unwrap();
+                a.values().iter().copied().fold(f64::NEG_INFINITY, f64::max)
+            }
+        };
+        Ok(v)
     }
 
     pub fn count(&self) -> usize {
@@ -588,6 +673,32 @@ impl Series {
         Ok(Series::from_bool(&self.name, values))
     }
 
+    pub fn str_starts_with(&self, prefix: &str) -> Result<Series> {
+        let arr = self.to_array();
+        let utf8 = arr
+            .as_any()
+            .downcast_ref::<Utf8Array<i32>>()
+            .ok_or_else(|| BlazeError::TypeMismatch("Expected Utf8 for starts_with".into()))?;
+        let values: Vec<bool> = utf8
+            .iter()
+            .map(|v| v.map_or(false, |s| s.starts_with(prefix)))
+            .collect();
+        Ok(Series::from_bool(&self.name, values))
+    }
+
+    pub fn str_ends_with(&self, suffix: &str) -> Result<Series> {
+        let arr = self.to_array();
+        let utf8 = arr
+            .as_any()
+            .downcast_ref::<Utf8Array<i32>>()
+            .ok_or_else(|| BlazeError::TypeMismatch("Expected Utf8 for ends_with".into()))?;
+        let values: Vec<bool> = utf8
+            .iter()
+            .map(|v| v.map_or(false, |s| s.ends_with(suffix)))
+            .collect();
+        Ok(Series::from_bool(&self.name, values))
+    }
+
     // ---- Rolling ----
 
     pub fn rolling_mean(&self, window: usize) -> Result<Series> {
@@ -606,6 +717,27 @@ impl Series {
                 let start = i + 1 - window;
                 let sum: f64 = values[start..=i].iter().sum();
                 result.push(sum / window as f64);
+            }
+        }
+        Ok(Series::from_f64(&self.name, result))
+    }
+
+    pub fn rolling_sum(&self, window: usize) -> Result<Series> {
+        let arr = self.cast_f64()?.to_array();
+        let prim = arr
+            .as_any()
+            .downcast_ref::<PrimitiveArray<f64>>()
+            .unwrap();
+        let values = prim.values();
+        let n = values.len();
+        let mut result: Vec<f64> = Vec::with_capacity(n);
+        for i in 0..n {
+            if i + 1 < window {
+                result.push(f64::NAN);
+            } else {
+                let start = i + 1 - window;
+                let sum: f64 = values[start..=i].iter().sum();
+                result.push(sum);
             }
         }
         Ok(Series::from_f64(&self.name, result))
