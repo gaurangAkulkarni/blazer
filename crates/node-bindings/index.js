@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { Expr, LazyFrame, DataFrame, col, litInt, litFloat, litStr, litBool, readCsv, readParquet, scanParquet, writeParquet } = nativeBinding
+const { Expr, LazyFrame, DataFrame, col, litInt, litFloat, litStr, litBool, readCsv, readParquet, scanParquet, scanCsv, writeParquet } = nativeBinding
 
 module.exports.Expr = Expr
 module.exports.LazyFrame = LazyFrame
@@ -323,4 +323,20 @@ module.exports.litBool = litBool
 module.exports.readCsv = readCsv
 module.exports.readParquet = readParquet
 module.exports.scanParquet = scanParquet
+module.exports.scanCsv = scanCsv
 module.exports.writeParquet = writeParquet
+
+/**
+ * Wrap a JavaScript scalar as a literal Expr.
+ * Dispatches to litInt / litFloat / litStr / litBool based on the JS type.
+ *
+ * @param {number|string|boolean} value
+ * @returns {Expr}
+ */
+function lit(value) {
+  if (typeof value === 'boolean') return litBool(value)
+  if (typeof value === 'string')  return litStr(value)
+  if (Number.isInteger(value))    return litInt(value)
+  return litFloat(value)
+}
+module.exports.lit = lit

@@ -53,6 +53,18 @@ pub enum StringOp {
     Len,
 }
 
+/// Date/time component to extract from a temporal column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatePart {
+    Year,
+    Month,
+    Day,
+    Hour,
+    Minute,
+    Second,
+    Weekday,
+}
+
 /// Sort options.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SortOptions {
@@ -138,6 +150,11 @@ pub enum Expr {
     Cast {
         expr: Box<Expr>,
         dtype: crate::dtype::DataType,
+    },
+    /// Date/time part extraction (year, month, day, hour, …).
+    DateExpr {
+        input: Box<Expr>,
+        part: DatePart,
     },
 }
 
@@ -366,6 +383,30 @@ impl Expr {
         }
     }
 
+    // ---- Date/time extraction ----
+
+    pub fn dt_year(self) -> Expr {
+        Expr::DateExpr { input: Box::new(self), part: DatePart::Year }
+    }
+    pub fn dt_month(self) -> Expr {
+        Expr::DateExpr { input: Box::new(self), part: DatePart::Month }
+    }
+    pub fn dt_day(self) -> Expr {
+        Expr::DateExpr { input: Box::new(self), part: DatePart::Day }
+    }
+    pub fn dt_hour(self) -> Expr {
+        Expr::DateExpr { input: Box::new(self), part: DatePart::Hour }
+    }
+    pub fn dt_minute(self) -> Expr {
+        Expr::DateExpr { input: Box::new(self), part: DatePart::Minute }
+    }
+    pub fn dt_second(self) -> Expr {
+        Expr::DateExpr { input: Box::new(self), part: DatePart::Second }
+    }
+    pub fn dt_weekday(self) -> Expr {
+        Expr::DateExpr { input: Box::new(self), part: DatePart::Weekday }
+    }
+
     /// Get the output name of this expression.
     pub fn output_name(&self) -> String {
         match self {
@@ -385,6 +426,9 @@ impl Expr {
             Expr::IsNull(e) => format!("{}_is_null", e.output_name()),
             Expr::IsNotNull(e) => format!("{}_is_not_null", e.output_name()),
             Expr::Cast { expr, .. } => expr.output_name(),
+            Expr::DateExpr { input, part } => {
+                format!("{}_{:?}", input.output_name(), part).to_lowercase()
+            }
             Expr::Literal(_) => "literal".to_string(),
             Expr::Wildcard => "*".to_string(),
         }
@@ -520,6 +564,7 @@ impl fmt::Display for Expr {
             Expr::IsNull(e) => write!(f, "{}.is_null()", e),
             Expr::IsNotNull(e) => write!(f, "{}.is_not_null()", e),
             Expr::Cast { expr, dtype } => write!(f, "{}.cast({})", expr, dtype),
+            Expr::DateExpr { input, part } => write!(f, "{}.dt.{:?}()", input, part),
         }
     }
 }

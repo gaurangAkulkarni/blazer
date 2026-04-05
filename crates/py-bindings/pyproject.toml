@@ -1,0 +1,35 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "blazer-py"
+version = "0.1.0"
+description = "Blazer — a fast Rust-powered DataFrame engine for Python"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+keywords = ["dataframe", "parquet", "csv", "analytics", "arrow"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[tool.maturin]
+# Native extension lives inside the blazer Python package as `blazer._blazer`.
+# The `python/blazer/__init__.py` re-exports everything so users write
+# `import blazer` and get both the native API and the shipped .pyi stubs.
+module-name = "blazer._blazer"
+features = ["pyo3/extension-module"]
+python-source = "python"

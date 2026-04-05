@@ -70,10 +70,22 @@ impl DataFrame {
     }
 
     pub fn column(&self, name: &str) -> Result<&Series> {
-        let idx = self.schema.index_of(name).ok_or_else(|| {
-            BlazeError::ColumnNotFound(name.to_string())
-        })?;
-        Ok(&self.columns[idx])
+        // Exact match first
+        if let Some(idx) = self.schema.index_of(name) {
+            return Ok(&self.columns[idx]);
+        }
+        // Case-insensitive fallback so "vendor_id" finds "VendorID" etc.
+        let lower = name.to_lowercase();
+        for (i, col) in self.columns.iter().enumerate() {
+            if col.name().to_lowercase() == lower {
+                return Ok(&self.columns[i]);
+            }
+        }
+        Err(BlazeError::ColumnNotFound(format!(
+            "{} (available: {})",
+            name,
+            self.columns.iter().map(|c| c.name()).collect::<Vec<_>>().join(", ")
+        )))
     }
 
     pub fn column_by_index(&self, idx: usize) -> Result<&Series> {

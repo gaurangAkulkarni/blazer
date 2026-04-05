@@ -1,3 +1,4 @@
+pub mod parquet_dict;
 pub mod parquet_stream;
 pub mod sink;
 pub mod spill;
@@ -11,6 +12,7 @@ use arrow2::io::csv::read as csv_read;
 use arrow2::io::ipc::read as ipc_read;
 use arrow2::io::ipc::write as ipc_write;
 use arrow2::io::parquet::read as pq_read;
+use arrow2::io::parquet::read::statistics as pq_stats;
 use arrow2::io::parquet::write as pq_write;
 
 use crate::dataframe::DataFrame;
@@ -187,12 +189,169 @@ impl CsvWriter {
     }
 }
 
+// ---- Row-group predicate types (zone-map skipping) ----------------------
+
+/// Comparison operator for a row-group filter.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RgOp {
+    Gt,
+    GtEq,
+    Lt,
+    LtEq,
+    Eq,
+}
+
+/// Literal value for a row-group filter.
+#[derive(Debug, Clone)]
+pub enum RgValue {
+    Int64(i64),
+    Float64(f64),
+    Utf8(String),
+}
+
+/// A simple `column OP value` predicate used for zone-map (min/max stats) skipping.
+/// Only AND-combinations of these are used — OR is conservatively ignored.
+#[derive(Debug, Clone)]
+pub struct RgPredicate {
+    pub column: String,
+    pub op: RgOp,
+    pub value: RgValue,
+}
+
+/// Returns the indices of row groups that **cannot be skipped** for the given predicates.
+fn surviving_row_group_indices(
+    row_groups: &[pq_read::RowGroupMetaData],
+    arrow_schema: &arrow2::datatypes::Schema,
+    predicates: &[RgPredicate],
+) -> Vec<usize> {
+    let n = row_groups.len();
+    let mut keep = vec![true; n];
+
+    for pred in predicates {
+        let col_lower = pred.column.to_lowercase();
+        let field = match arrow_schema
+            .fields
+            .iter()
+            .find(|f| f.name.to_lowercase() == col_lower)
+        {
+            Some(f) => f.clone(),
+            None => continue, // unknown column — keep all
+        };
+
+        let stats = match pq_stats::deserialize(&field, row_groups) {
+            Ok(s) => s,
+            Err(_) => continue, // no stats available — keep all
+        };
+
+        for rg_idx in 0..n {
+            if !keep[rg_idx] {
+                continue;
+            }
+            if rg_can_skip(pred, &*stats.min_value, &*stats.max_value, rg_idx) {
+                keep[rg_idx] = false;
+            }
+        }
+    }
+
+    keep.iter()
+        .enumerate()
+        .filter(|(_, k)| **k)
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// Returns `true` if this row group definitely contains no rows matching `pred`.
+fn rg_can_skip(
+    pred: &RgPredicate,
+    min_arr: &dyn arrow2::array::Array,
+    max_arr: &dyn arrow2::array::Array,
+    idx: usize,
+) -> bool {
+    // Missing statistics → cannot safely skip
+    if idx >= min_arr.len() || idx >= max_arr.len() {
+        return false;
+    }
+    if min_arr.is_null(idx) || max_arr.is_null(idx) {
+        return false;
+    }
+
+    // Numeric path: convert min/max to f64 and compare
+    if let (Some(min_f), Some(max_f)) =
+        (arr_as_f64(min_arr, idx), arr_as_f64(max_arr, idx))
+    {
+        if let Some(v) = rg_value_as_f64(&pred.value) {
+            return match pred.op {
+                RgOp::Gt   => max_f <= v,              // no value > v
+                RgOp::GtEq => max_f < v,               // no value >= v
+                RgOp::Lt   => min_f >= v,               // no value < v
+                RgOp::LtEq => min_f > v,               // no value <= v
+                RgOp::Eq   => v < min_f || v > max_f,  // v outside [min, max]
+            };
+        }
+    }
+
+    // String path
+    if let (Some(min_s), Some(max_s)) =
+        (arr_as_str(min_arr, idx), arr_as_str(max_arr, idx))
+    {
+        if let RgValue::Utf8(ref v) = pred.value {
+            return match pred.op {
+                RgOp::Gt   => max_s.as_str() <= v.as_str(),
+                RgOp::GtEq => max_s.as_str() < v.as_str(),
+                RgOp::Lt   => min_s.as_str() >= v.as_str(),
+                RgOp::LtEq => min_s.as_str() > v.as_str(),
+                RgOp::Eq   => v.as_str() < min_s.as_str() || v.as_str() > max_s.as_str(),
+            };
+        }
+    }
+
+    false // unknown type → keep the row group
+}
+
+fn arr_as_f64(arr: &dyn arrow2::array::Array, idx: usize) -> Option<f64> {
+    use arrow2::array::PrimitiveArray;
+    use arrow2::datatypes::DataType as AD;
+    match arr.data_type() {
+        AD::Float64 => arr.as_any().downcast_ref::<PrimitiveArray<f64>>().map(|a| a.value(idx)),
+        AD::Float32 => arr.as_any().downcast_ref::<PrimitiveArray<f32>>().map(|a| a.value(idx) as f64),
+        AD::Int64 | AD::Timestamp(_, _) | AD::Date64 => {
+            arr.as_any().downcast_ref::<PrimitiveArray<i64>>().map(|a| a.value(idx) as f64)
+        }
+        AD::Int32 | AD::Date32 => {
+            arr.as_any().downcast_ref::<PrimitiveArray<i32>>().map(|a| a.value(idx) as f64)
+        }
+        AD::UInt64 => arr.as_any().downcast_ref::<PrimitiveArray<u64>>().map(|a| a.value(idx) as f64),
+        AD::UInt32 => arr.as_any().downcast_ref::<PrimitiveArray<u32>>().map(|a| a.value(idx) as f64),
+        _ => None,
+    }
+}
+
+fn arr_as_str(arr: &dyn arrow2::array::Array, idx: usize) -> Option<String> {
+    use arrow2::array::Utf8Array;
+    use arrow2::datatypes::DataType as AD;
+    match arr.data_type() {
+        AD::Utf8 => arr.as_any().downcast_ref::<Utf8Array<i32>>().map(|a| a.value(idx).to_string()),
+        AD::LargeUtf8 => arr.as_any().downcast_ref::<Utf8Array<i64>>().map(|a| a.value(idx).to_string()),
+        _ => None,
+    }
+}
+
+fn rg_value_as_f64(v: &RgValue) -> Option<f64> {
+    match v {
+        RgValue::Int64(i) => Some(*i as f64),
+        RgValue::Float64(f) => Some(*f),
+        RgValue::Utf8(_) => None,
+    }
+}
+
 // ---- Parquet Reader ----
 
 pub struct ParquetReader<R: Read + Seek> {
     reader: R,
     projection: Option<Vec<String>>,
     n_rows: Option<usize>,
+    /// Zone-map predicates for row-group skipping.
+    row_group_predicates: Vec<RgPredicate>,
 }
 
 impl ParquetReader<BufReader<File>> {
@@ -202,6 +361,7 @@ impl ParquetReader<BufReader<File>> {
             reader: BufReader::new(file),
             projection: None,
             n_rows: None,
+            row_group_predicates: Vec::new(),
         })
     }
 }
@@ -212,6 +372,7 @@ impl<R: Read + Seek> ParquetReader<R> {
             reader,
             projection: None,
             n_rows: None,
+            row_group_predicates: Vec::new(),
         }
     }
 
@@ -225,26 +386,66 @@ impl<R: Read + Seek> ParquetReader<R> {
         self
     }
 
+    /// Attach zone-map predicates. Row groups whose min/max statistics prove
+    /// that no row can satisfy ALL predicates will be skipped entirely.
+    pub fn with_row_group_predicates(mut self, preds: Vec<RgPredicate>) -> Self {
+        self.row_group_predicates = preds;
+        self
+    }
+
     pub fn finish(mut self) -> Result<DataFrame> {
         let metadata = pq_read::read_metadata(&mut self.reader)?;
         let arrow_schema = pq_read::infer_schema(&metadata)?;
 
-        let fields = if let Some(ref proj) = self.projection {
-            arrow_schema
+        // Build the schema to actually read — either the full schema or a
+        // column-filtered subset. arrow2's FileReader matches columns by name,
+        // so passing a reduced schema causes it to read only those columns.
+        let read_schema = if let Some(ref proj) = self.projection {
+            // Match projected column names case-insensitively against the file schema
+            let proj_lower: Vec<String> = proj.iter().map(|s| s.to_lowercase()).collect();
+            let filtered_fields: Vec<_> = arrow_schema
                 .fields
                 .iter()
-                .filter(|f| proj.contains(&f.name))
+                .filter(|f| proj_lower.contains(&f.name.to_lowercase()))
                 .cloned()
-                .collect::<Vec<_>>()
+                .collect();
+            arrow2::datatypes::Schema {
+                fields: filtered_fields,
+                metadata: arrow_schema.metadata.clone(),
+            }
         } else {
-            arrow_schema.fields.clone()
+            arrow_schema.clone()
+        };
+
+        let fields = read_schema.fields.clone();
+
+        // ── Zone-map row-group skipping ──────────────────────────────────────
+        // Use the full arrow_schema (not the projected one) for statistics
+        // look-up so we can filter on columns that aren't projected.
+        let row_groups = if !self.row_group_predicates.is_empty() {
+            let surviving = surviving_row_group_indices(
+                &metadata.row_groups,
+                &arrow_schema,
+                &self.row_group_predicates,
+            );
+            let surviving_set: std::collections::HashSet<usize> =
+                surviving.into_iter().collect();
+            metadata
+                .row_groups
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| surviving_set.contains(i))
+                .map(|(_, rg)| rg)
+                .collect()
+        } else {
+            metadata.row_groups
         };
 
         let file_reader = pq_read::FileReader::new(
             &mut self.reader,
-            metadata.row_groups,
-            arrow_schema,
-            None, // chunk_size
+            row_groups,
+            read_schema, // ← filtered schema so only projected cols are read
+            None,        // chunk_size
             self.n_rows,
             None, // page_indexes
         );

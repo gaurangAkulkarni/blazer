@@ -84,6 +84,15 @@ pub enum ComputeExpr {
     Sub { sub: [Box<ComputeExpr>; 2] },
     Mul { mul: [Box<ComputeExpr>; 2] },
     Div { div: [Box<ComputeExpr>; 2] },
+    // Date/time part extraction:
+    //   {"year": {"col": "ts"}}  {"month": {"col": "ts"}}  etc.
+    Year    { year:    Box<ComputeExpr> },
+    Month   { month:   Box<ComputeExpr> },
+    Day     { day:     Box<ComputeExpr> },
+    Hour    { hour:    Box<ComputeExpr> },
+    Minute  { minute:  Box<ComputeExpr> },
+    Second  { second:  Box<ComputeExpr> },
+    Weekday { weekday: Box<ComputeExpr> },
     // Column ref: {"col": "name"} or {"col": "name", "cast": "Float64"}
     Col {
         col: String,
@@ -117,16 +126,17 @@ pub struct SchemaField {
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn run_query(query: Value) -> QueryResult {
-    let start = std::time::Instant::now();
+pub async fn run_query(query: Value) -> QueryResult {
+    let task = tokio::task::spawn_blocking(move || {
+        let start = std::time::Instant::now();
+        let run_result = panic::catch_unwind(|| execute_query(query));
+        let duration_ms = start.elapsed().as_millis() as u64;
+        (run_result, duration_ms)
+    });
 
-    let result = panic::catch_unwind(|| execute_query(query));
-
-    let duration_ms = start.elapsed().as_millis() as u64;
-
-    match result {
-        Ok(Ok(df)) => dataframe_to_result(df, duration_ms),
-        Ok(Err(e)) => QueryResult {
+    match task.await {
+        Ok((Ok(Ok(df)), duration_ms)) => dataframe_to_result(df, duration_ms),
+        Ok((Ok(Err(e)), duration_ms)) => QueryResult {
             success: false,
             error: Some(e),
             data: vec![],
@@ -134,11 +144,11 @@ pub fn run_query(query: Value) -> QueryResult {
             shape: [0, 0],
             duration_ms,
         },
-        Err(_) => QueryResult {
+        Ok((Err(_), duration_ms)) => QueryResult {
             success: false,
             error: Some(
                 "Engine panic — likely a stack overflow or out-of-memory. \
-                 Try using a parquet_dir source with .limit() to read a subset first."
+                 Try adding a limit op (e.g. {\"op\":\"limit\",\"n\":1000}) first."
                     .to_string(),
             ),
             data: vec![],
@@ -146,16 +156,28 @@ pub fn run_query(query: Value) -> QueryResult {
             shape: [0, 0],
             duration_ms,
         },
+        Err(e) => QueryResult {
+            success: false,
+            error: Some(format!("Task error: {e}")),
+            data: vec![],
+            columns: vec![],
+            shape: [0, 0],
+            duration_ms: 0,
+        },
     }
 }
 
 #[tauri::command]
-pub fn get_schema(path: String, kind: String) -> Result<Vec<SchemaField>, String> {
-    let result = panic::catch_unwind(|| infer_schema(&path, &kind));
-    match result {
-        Ok(Ok(fields)) => Ok(fields),
-        Ok(Err(e)) => Err(e),
-        Err(_) => Err("Panic while reading schema".to_string()),
+pub async fn get_schema(path: String, kind: String) -> Result<Vec<SchemaField>, String> {
+    let task = tokio::task::spawn_blocking(move || {
+        panic::catch_unwind(|| infer_schema(&path, &kind))
+    });
+
+    match task.await {
+        Ok(Ok(Ok(fields))) => Ok(fields),
+        Ok(Ok(Err(e))) => Err(e),
+        Ok(Err(_)) => Err("Panic while reading schema".to_string()),
+        Err(e) => Err(format!("Task error: {e}")),
     }
 }
 
@@ -173,7 +195,52 @@ fn execute_query(raw: Value) -> Result<DataFrame, String> {
         lf = apply_op(lf, op)?;
     }
 
-    lf.collect().map_err(|e| e.to_string())
+    // Execution strategy:
+    //
+    // collect_streaming() — streams row groups one at a time through a
+    //   pipeline of operators.  For GroupBy, PartialAggStream keeps only a
+    //   hash table of (keys → accumulators) in memory — never the full
+    //   dataset.  For a query returning 4 groups out of 46M rows, this means
+    //   a few KB of state instead of GBs of materialized rows.
+    //
+    // collect() — reads ALL parquet_dir files in PARALLEL via Rayon and
+    //   builds one large in-memory DataFrame.  Only wins for a raw Sort or
+    //   Join where you must load every row anyway and I/O parallelism helps.
+    //
+    // Heuristic:
+    //   • GroupBy present  → always stream (PartialAggStream is far cheaper
+    //     than materialising millions of rows just to aggregate them)
+    //   • Sort with no GroupBy → parallel (must load all rows, parallel I/O
+    //     gives 3-4x speedup)
+    //   • Everything else on parquet_dir → stream
+    let use_streaming = matches!(query.source.kind.as_str(), "parquet_dir")
+        && !should_use_parallel(&query.ops);
+
+    if use_streaming {
+        lf.collect_streaming().map_err(|e| e.to_string())
+    } else {
+        lf.collect().map_err(|e| e.to_string())
+    }
+}
+
+/// Returns true when the parallel physical executor is preferable to the
+/// streaming pipeline.
+///
+/// Rules:
+///   • GroupBy → always stream (PartialAggStream is O(groups) memory)
+///   • Distinct → always stream (DistinctStream is O(unique) memory; materialising
+///     46M rows just to deduplicate 2 values kills performance)
+///   • Sort-only (no GroupBy/Distinct) → parallel (full sort needs all rows anyway;
+///     parallel file I/O gives a 3-4× speedup)
+fn should_use_parallel(ops: &[Op]) -> bool {
+    let has_group_by = ops.iter().any(|op| matches!(op, Op::GroupBy { .. }));
+    let has_distinct = ops.iter().any(|op| matches!(op, Op::Distinct));
+    if has_group_by || has_distinct {
+        // Streaming: keeps only aggregated/unique values in memory — O(groups/unique)
+        return false;
+    }
+    // No GroupBy/Distinct: a Sort must materialise all rows; parallel reads help here.
+    ops.iter().any(|op| matches!(op, Op::Sort { .. }))
 }
 
 fn load_source(src: &Source) -> Result<LazyFrame, String> {
@@ -330,6 +397,14 @@ fn build_compute_expr(expr: &ComputeExpr) -> Result<EngineExpr, String> {
         ComputeExpr::Div { div } => {
             Ok(build_compute_expr(&div[0])?.div(build_compute_expr(&div[1])?))
         }
+        // Date/time part extraction
+        ComputeExpr::Year    { year }    => Ok(build_compute_expr(year)?.dt_year()),
+        ComputeExpr::Month   { month }   => Ok(build_compute_expr(month)?.dt_month()),
+        ComputeExpr::Day     { day }     => Ok(build_compute_expr(day)?.dt_day()),
+        ComputeExpr::Hour    { hour }    => Ok(build_compute_expr(hour)?.dt_hour()),
+        ComputeExpr::Minute  { minute }  => Ok(build_compute_expr(minute)?.dt_minute()),
+        ComputeExpr::Second  { second }  => Ok(build_compute_expr(second)?.dt_second()),
+        ComputeExpr::Weekday { weekday } => Ok(build_compute_expr(weekday)?.dt_weekday()),
     }
 }
 
@@ -455,6 +530,36 @@ fn dataframe_to_result(df: DataFrame, duration_ms: u64) -> QueryResult {
                             .downcast_ref::<arrow2::array::Utf8Array<i32>>()
                             .unwrap();
                         Value::String(p.value(row).to_string())
+                    }
+                    // Timestamps stored as i64 microseconds — emit as integer.
+                    // UI can format as ISO-8601 if desired.
+                    DataType::Timestamp | DataType::Date64 => {
+                        let p = arr
+                            .as_any()
+                            .downcast_ref::<arrow2::array::PrimitiveArray<i64>>()
+                            .unwrap();
+                        Value::Number(serde_json::Number::from(p.value(row)))
+                    }
+                    DataType::Date32 => {
+                        let p = arr
+                            .as_any()
+                            .downcast_ref::<arrow2::array::PrimitiveArray<i32>>()
+                            .unwrap();
+                        Value::Number(serde_json::Number::from(p.value(row)))
+                    }
+                    DataType::UInt32 => {
+                        let p = arr
+                            .as_any()
+                            .downcast_ref::<arrow2::array::PrimitiveArray<u32>>()
+                            .unwrap();
+                        Value::Number(serde_json::Number::from(p.value(row)))
+                    }
+                    DataType::UInt64 => {
+                        let p = arr
+                            .as_any()
+                            .downcast_ref::<arrow2::array::PrimitiveArray<u64>>()
+                            .unwrap();
+                        Value::Number(serde_json::Number::from(p.value(row)))
                     }
                     _ => Value::String(format!("unsupported({})", col.dtype())),
                 }

@@ -1,15 +1,42 @@
 {
   "name": "blazer-node",
   "version": "0.1.0",
+  "description": "Blazer — a fast Rust-powered DataFrame engine for Node.js",
   "main": "index.js",
   "types": "index.d.ts",
+  "keywords": ["dataframe", "parquet", "csv", "analytics", "arrow", "rust", "napi"],
+  "license": "MIT",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "blazer-node.darwin-arm64.node",
+    "blazer-node.darwin-x64.node",
+    "blazer-node.darwin-universal.node",
+    "blazer-node.linux-x64-gnu.node",
+    "blazer-node.linux-arm64-gnu.node",
+    "blazer-node.win32-x64-msvc.node",
+    "README.md"
+  ],
   "napi": {
     "name": "blazer-node",
-    "triples": {}
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">= 14"
   },
   "scripts": {
     "build": "napi build --platform --release",
-    "build:debug": "napi build --platform"
+    "build:debug": "napi build --platform",
+    "test": "node --input-type=module < test.mjs"
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.0"

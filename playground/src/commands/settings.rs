@@ -9,6 +9,16 @@ pub struct ProviderSettings {
     pub api_key: String,
     pub model: String,
     pub temperature: f32,
+    /// Optional custom base URL for OpenAI-compatible endpoints (LM Studio, vLLM, Azure, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OllamaSettings {
+    pub base_url: String,
+    pub model: String,
+    pub temperature: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -24,8 +34,26 @@ pub struct AppSettings {
     pub active_provider: String,
     pub openai: ProviderSettings,
     pub claude: ProviderSettings,
+    #[serde(default)]
+    pub ollama: OllamaSettings,
     pub active_skills: Vec<String>,
     pub custom_skills: Vec<CustomSkill>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_follow_up_chips: Option<bool>,
+    #[serde(default = "default_context_history_limit")]
+    pub context_history_limit: u32,
+}
+
+fn default_context_history_limit() -> u32 { 20 }
+
+impl Default for OllamaSettings {
+    fn default() -> Self {
+        OllamaSettings {
+            base_url: "http://localhost:11434".to_string(),
+            model: "llama3.2".to_string(),
+            temperature: 0.3,
+        }
+    }
 }
 
 impl Default for AppSettings {
@@ -36,14 +64,19 @@ impl Default for AppSettings {
                 api_key: String::new(),
                 model: "gpt-4o".to_string(),
                 temperature: 0.3,
+                base_url: None,
             },
             claude: ProviderSettings {
                 api_key: String::new(),
                 model: "claude-sonnet-4-20250514".to_string(),
                 temperature: 0.3,
+                base_url: None,
             },
+            ollama: OllamaSettings::default(),
             active_skills: vec!["blazer-engine".to_string()],
             custom_skills: vec![],
+            show_follow_up_chips: None,
+            context_history_limit: 20,
         }
     }
 }

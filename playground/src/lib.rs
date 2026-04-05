@@ -12,6 +12,12 @@ pub fn run() {
             commands::files::convert_to_parquet,
             commands::settings::load_settings,
             commands::settings::save_settings,
+            commands::llm::stream_llm,
+            commands::llm::fetch_openai_models,
+            commands::duckdb::check_duckdb,
+            commands::duckdb::install_duckdb,
+            commands::duckdb::run_duckdb_query,
+            commands::duckdb::export_to_parquet,
         ])
         .run(tauri::generate_context!())
         .expect("error while running blazer");
