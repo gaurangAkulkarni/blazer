@@ -39,14 +39,28 @@ Load a Parquet, CSV, or Excel file and ask questions in plain English. The AI wr
 
 ---
 
-## Engine Status
+## Query Engines
 
-| Engine | Status | Notes |
+Blazer Studio uses two query engines — one stable and in active focus, one a long-term research effort.
+
+### DuckDB ✅ Stable — primary focus
+
+Blazer Studio embeds [DuckDB](https://duckdb.org) as its SQL analytics engine. DuckDB is an open-source, in-process analytical database developed by [Stichting DuckDB Foundation](https://duckdb.org/foundation) and licensed under the [MIT License](https://github.com/duckdb/duckdb/blob/main/LICENSE).
+
+Blazer Studio uses DuckDB as a library dependency via the [`duckdb` Rust crate](https://crates.io/crates/duckdb). It is not a fork, modification, or redistribution of DuckDB, and this project is not affiliated with or endorsed by the DuckDB Foundation or DuckDB Labs.
+
+Supported file formats via DuckDB: **Parquet, CSV/TSV, Excel (XLSX), JSON, and directories of any of the above.**
+
+### Blazer Engine 🚧 Work in progress
+
+The Blazer engine is a ground-up columnar compute engine built on [Apple MLX](https://github.com/ml-explore/mlx), targeting GPU-accelerated data operations on Apple Silicon (M1/M2/M3/M4). Core operators are scaffolded. Python and Node.js bindings are available for early experimentation.
+
+> **This engine is not yet production-ready.** All active development is focused on the DuckDB integration for now. The Blazer engine will become the primary engine in a future release, exclusively for Apple Silicon Macs.
+
+| Engine | Status | Requires |
 |---|---|---|
-| **DuckDB** | ✅ Stable — primary focus | Parquet, CSV, XLSX, JSON, directories |
-| **Blazer** | 🚧 Work in progress | MLX-based, Apple Silicon only — not yet production-ready |
-
-> The Blazer engine is a ground-up columnar compute engine built on [Apple MLX](https://github.com/ml-explore/mlx), designed for GPU-accelerated data operations on Apple Silicon (M1/M2/M3/M4). Core operators are scaffolded. Python and Node.js bindings are available for early experimentation. Active development is focused on the DuckDB engine for now.
+| **DuckDB** | ✅ Stable — primary focus | macOS, Linux, Windows |
+| **Blazer** | 🚧 Work in progress | Apple Silicon (M-series) only |
 
 ---
 
@@ -94,7 +108,7 @@ The `.dmg` / `.app` will be in `playground/target/release/bundle/`.
 | Layer | Technology |
 |---|---|
 | Desktop framework | [Tauri 2](https://tauri.app) (Rust) |
-| Query engine | [DuckDB](https://duckdb.org) via `duckdb` crate |
+| SQL analytics | [DuckDB](https://duckdb.org) (embedded via `duckdb` crate, MIT License, © Stichting DuckDB Foundation) |
 | Blazer engine | [Apple MLX](https://github.com/ml-explore/mlx) (WIP) |
 | Frontend | React + TypeScript + Tailwind CSS |
 | LLM providers | Anthropic, OpenAI, Ollama |
@@ -140,4 +154,15 @@ Issues and PRs are welcome. This is an independent personal open-source project 
 
 [MIT](LICENSE) © 2025 [Gaurang Kulkarni](https://github.com/gaurangAkulkarni)
 
-> Blazer Studio is an independent open-source project and is not affiliated with Kvell.
+### Third-party notices
+
+This project uses the following open-source dependencies. Their licenses are independent of this project's MIT license.
+
+| Dependency | License | Copyright |
+|---|---|---|
+| [DuckDB](https://duckdb.org) | MIT | © Stichting DuckDB Foundation |
+| [Tauri](https://tauri.app) | MIT / Apache 2.0 | © Tauri Programme within the Commons Conservancy |
+| [Apple MLX](https://github.com/ml-explore/mlx) | MIT | © Apple Inc. |
+| [React](https://react.dev) | MIT | © Meta Platforms, Inc. |
+
+> Blazer Studio is an independent personal open-source project. It is not affiliated with, endorsed by, or sponsored by Kvell, DuckDB Foundation, DuckDB Labs, Apple Inc., or any other organisation.
