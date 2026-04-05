@@ -117,6 +117,8 @@
 
     /* ── Hero ─────────────────────────────────────────────────────── */
     .hero {
+      position: relative;
+      overflow: hidden;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -124,7 +126,56 @@
       justify-content: center;
       text-align: center;
       padding: 120px 24px 80px;
+      background: #050505;
     }
+    #hero-matrix {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+    }
+    /* Radial vignette so centre content stays readable */
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 60% 55% at 50% 50%, transparent 30%, rgba(0,0,0,0.72) 100%);
+      pointer-events: none;
+      z-index: 1;
+    }
+    /* Fade out to white at the bottom */
+    .hero::after {
+      content: '';
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: 220px;
+      background: linear-gradient(to bottom, transparent, #ffffff);
+      pointer-events: none;
+      z-index: 1;
+    }
+    /* All hero text content sits above canvas + overlays */
+    .hero > * { position: relative; z-index: 2; }
+
+    /* Hero text colours on dark background */
+    .hero h1 { color: #ffffff; }
+    .hero .h1-sub { color: rgba(255,255,255,0.45); }
+    .hero .hero-desc { color: rgba(255,255,255,0.5); }
+    .hero .hero-eyebrow {
+      background: rgba(255,255,255,0.07);
+      border-color: rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.5);
+    }
+    .hero .hero-eyebrow span { color: #fff; }
+    .hero .btn-primary { background: #fff; color: #000; }
+    .hero .btn-primary:hover { opacity: 0.88; }
+    .hero .btn-secondary {
+      background: transparent;
+      color: #fff;
+      border-color: rgba(255,255,255,0.28);
+    }
+    .hero .btn-secondary:hover { background: rgba(255,255,255,0.08); }
     .hero-eyebrow {
       display: inline-flex;
       align-items: center;
@@ -374,42 +425,11 @@
     .code-section {
       padding: 96px 0;
     }
-    .code-window {
-      background: var(--black);
-      border-radius: var(--radius);
-      overflow: hidden;
-      margin-top: 48px;
-      box-shadow: 0 24px 80px rgba(0,0,0,0.18);
-    }
-    .code-titlebar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 14px 18px;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-    }
-    .traffic { width: 12px; height: 12px; border-radius: 50%; }
-    .t-red   { background: #ff5f57; }
-    .t-yellow{ background: #febc2e; }
-    .t-green { background: #28c840; }
-    .code-titlebar span {
-      margin-left: 8px;
-      font-size: 12px;
-      color: rgba(255,255,255,0.3);
-      font-family: 'SF Mono', 'Menlo', monospace;
-    }
-    .code-body {
-      padding: 28px 32px;
-      font-family: 'SF Mono', 'Menlo', 'Courier New', monospace;
-      font-size: 13px;
-      line-height: 1.8;
-      color: rgba(255,255,255,0.85);
-    }
-    .kw   { color: #ff7ab2; }
-    .fn   { color: #67c7f5; }
-    .str  { color: #fc6; }
-    .cmt  { color: rgba(255,255,255,0.28); font-style: italic; }
-    .num  { color: #d9c97c; }
+    .kw   { color: #0550ae; }
+    .fn   { color: #0550ae; }
+    .str  { color: #0a3069; }
+    .cmt  { color: #8b949e; font-style: italic; }
+    .num  { color: #116329; }
 
     /* ── Agentic demo ─────────────────────────────────────────────── */
     .agentic-section {
@@ -601,6 +621,7 @@
 
 <!-- Hero -->
 <section class="hero">
+  <canvas id="hero-matrix"></canvas>
   <div class="hero-eyebrow">
     <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
       <circle cx="5" cy="5" r="4" fill="#30d158"/>
@@ -821,34 +842,42 @@
         <!-- Left: SQL editor -->
         <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #e5e5ea;min-width:0;">
           <!-- Editor toolbar -->
-          <div style="padding:8px 12px;border-bottom:1px solid #f0f0f4;display:flex;align-items:center;gap:8px;background:#fafafa;">
-            <span style="font-size:11px;color:#888;font-weight:500;">nyc_trips.parquet</span>
-            <div style="margin-left:auto;display:flex;gap:6px;">
-              <button style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid #e0e0e5;background:#fff;color:#555;cursor:pointer;">Save snippet</button>
-              <button style="font-size:11px;padding:3px 12px;border-radius:6px;border:none;background:#000;color:#fff;cursor:pointer;font-weight:500;display:flex;align-items:center;gap:5px;">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <div style="padding:6px 10px;border-bottom:1px solid #f0f0f4;display:flex;align-items:center;gap:6px;background:#fafafa;">
+            <span style="font-size:11px;color:#999;font-weight:400;font-family:'SF Mono','Menlo',monospace;">nyc_trips.parquet</span>
+            <div style="margin-left:auto;display:flex;gap:5px;align-items:center;">
+              <button style="font-size:11px;padding:3px 9px;border-radius:5px;border:1px solid #e0e0e5;background:#fff;color:#666;cursor:pointer;font-weight:400;">Format</button>
+              <button style="font-size:11px;padding:3px 9px;border-radius:5px;border:1px solid #e0e0e5;background:#fff;color:#666;cursor:pointer;font-weight:400;">Save snippet</button>
+              <button style="font-size:11px;padding:4px 12px;border-radius:6px;border:none;background:#1a1a1a;color:#fff;cursor:pointer;font-weight:500;display:flex;align-items:center;gap:4px;">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 Run
               </button>
             </div>
           </div>
-          <!-- Code -->
-          <div style="flex:1;overflow:auto;padding:16px;background:#fff;">
-            <pre style="margin:0;font-family:'SF Mono','Menlo','Courier New',monospace;font-size:12px;line-height:1.8;color:#333;"><span style="color:#888;font-style:italic;">-- Monthly revenue by year/month</span>
-<span style="color:#cf222e;">SELECT</span>
-  <span style="color:#0550ae;">year</span>(tpep_pickup_datetime) <span style="color:#cf222e;">AS</span> year,
-  <span style="color:#0550ae;">month</span>(tpep_pickup_datetime) <span style="color:#cf222e;">AS</span> month,
-  <span style="color:#0550ae;">count</span>(*) <span style="color:#cf222e;">AS</span> total_trips,
-  <span style="color:#0550ae;">round</span>(<span style="color:#0550ae;">avg</span>(fare_amount), <span style="color:#116329;">2</span>) <span style="color:#cf222e;">AS</span> avg_fare,
-  <span style="color:#0550ae;">sum</span>(fare_amount) <span style="color:#cf222e;">AS</span> total_revenue
-<span style="color:#cf222e;">FROM</span> <span style="color:#0550ae;">read_parquet</span>(<span style="color:#0a3069;">'/data/trips/*.parquet'</span>)
-<span style="color:#cf222e;">GROUP BY</span> <span style="color:#116329;">1</span>, <span style="color:#116329;">2</span>
-<span style="color:#cf222e;">ORDER BY</span> <span style="color:#116329;">1</span>, <span style="color:#116329;">2</span>;</pre>
+          <!-- Code with line numbers -->
+          <div style="flex:1;overflow:auto;background:#fff;display:flex;">
+            <!-- Line numbers -->
+            <div style="padding:14px 8px 14px 10px;background:#fafafa;border-right:1px solid #f0f0f0;font-family:'SF Mono','Menlo',monospace;font-size:11px;line-height:1.85;color:#ccc;text-align:right;user-select:none;min-width:32px;">
+              1<br/>2<br/>3<br/>4<br/>5<br/>6<br/>7<br/>8<br/>9<br/>10
+            </div>
+            <!-- Code -->
+            <div style="flex:1;padding:14px 16px;overflow:auto;">
+              <pre style="margin:0;font-family:'SF Mono','Menlo','Courier New',monospace;font-size:11.5px;line-height:1.85;color:#333;"><span class="cmt">-- Monthly revenue by year/month</span>
+<span class="kw">SELECT</span>
+  <span class="fn">year</span>(tpep_pickup_datetime) <span class="kw">AS</span> year,
+  <span class="fn">month</span>(tpep_pickup_datetime) <span class="kw">AS</span> month,
+  <span class="fn">count</span>(*) <span class="kw">AS</span> total_trips,
+  <span class="fn">round</span>(<span class="fn">avg</span>(fare_amount), <span class="num">2</span>) <span class="kw">AS</span> avg_fare,
+  <span class="fn">sum</span>(fare_amount) <span class="kw">AS</span> total_revenue
+<span class="kw">FROM</span> <span class="fn">read_parquet</span>(<span class="str">'/data/trips/*.parquet'</span>)
+<span class="kw">GROUP BY</span> <span class="num">1</span>, <span class="num">2</span>
+<span class="kw">ORDER BY</span> <span class="num">1</span>, <span class="num">2</span>;</pre>
+            </div>
           </div>
-          <!-- Status bar -->
-          <div style="padding:5px 12px;border-top:1px solid #f0f0f4;background:#fafafa;display:flex;align-items:center;gap:12px;font-size:10px;color:#aaa;">
-            <span style="color:#22c55e;font-weight:600;">✓ 312ms</span>
+          <!-- Status bar: Done badge style -->
+          <div style="padding:5px 10px;border-top:1px solid #f0f0f4;background:#fafafa;display:flex;align-items:center;gap:8px;font-size:10px;color:#aaa;">
+            <span style="background:#dcfce7;color:#16a34a;font-weight:600;padding:1px 8px;border-radius:20px;font-size:10px;">Done in 312ms</span>
             <span>47,248,845 rows scanned</span>
-            <span style="margin-left:auto;">DuckDB 1.1.0</span>
+            <span style="margin-left:auto;color:#bbb;">DuckDB 1.1.0</span>
           </div>
         </div>
 
@@ -1047,15 +1076,25 @@
         <div style="padding:12px 16px 0;display:flex;gap:10px;align-items:flex-start;">
           <div style="width:26px;height:26px;border-radius:50%;background:#f0f0f4;border:1px solid #e0e0e5;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#555;flex-shrink:0;">AI</div>
           <div style="border:1px solid #e8e8ed;background:#fff;padding:10px 14px;border-radius:14px;border-bottom-left-radius:4px;font-size:13px;line-height:1.6;color:#333;max-width:480px;">
-            <!-- Query block -->
-            <div style="background:#f5f5f7;border:1px solid #e5e5ea;border-radius:8px;overflow:hidden;margin-bottom:10px;">
-              <div style="background:#ececf0;padding:5px 10px;font-size:10px;color:#666;display:flex;align-items:center;gap:6px;font-family:monospace;">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" style="color:#6366f1;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                duckdb query
-                <span style="background:#e0e0e8;padding:1px 6px;border-radius:4px;font-size:9px;letter-spacing:0.05em;">Q3ZP8X</span>
-                <span style="margin-left:auto;background:#16a34a;color:white;padding:1px 8px;border-radius:20px;font-size:10px;font-weight:600;">✓ Done</span>
+            <!-- Query block — matches real QueryBlock component -->
+            <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:10px;">
+              <!-- Header: gray-100 bg, icon + label + ID badge + result link | Done button -->
+              <div style="background:#f3f4f6;border-bottom:1px solid #e5e7eb;padding:5px 10px;font-size:10px;color:#6b7280;display:flex;align-items:center;gap:5px;">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="#3b82f6"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span style="font-weight:500;color:#374151;">duckdb query</span>
+                <span style="background:#e5e7eb;padding:1px 5px;border-radius:3px;font-family:'SF Mono','Menlo',monospace;font-weight:600;font-size:9px;color:#6b7280;letter-spacing:0.04em;">Q3ZP8X</span>
+                <span style="display:flex;align-items:center;gap:2px;color:#818cf8;font-size:10px;">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+                  result
+                </span>
+                <!-- Right: Done button -->
+                <span style="margin-left:auto;display:flex;align-items:center;gap:3px;background:#16a34a;color:#fff;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:500;">
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Done
+                </span>
               </div>
-              <pre style="margin:0;padding:8px 10px;font-family:'SF Mono','Menlo',monospace;font-size:11px;color:#333;line-height:1.6;overflow-x:auto;"><span style="color:#888;">-- Payment type breakdown</span>
+              <!-- Code: gray-50 background, plain monospace -->
+              <pre style="margin:0;padding:8px 10px;background:#f9fafb;font-family:'SF Mono','Menlo',monospace;font-size:11px;color:#374151;line-height:1.65;overflow-x:auto;">-- Payment type breakdown
 SELECT payment_type,
   count(*) AS trips,
   round(avg(fare_amount),2) AS avg_fare
@@ -1180,16 +1219,12 @@ GROUP BY 1 ORDER BY 2 DESC;</pre>
 </footer>
 
 <script>
-// ── Matrix rain animation ──────────────────────────────────────────────────
+// ── Background matrix rain (full page, very subtle) ───────────────────────
 (function() {
   const canvas = document.getElementById('matrix-canvas')
   const ctx = canvas.getContext('2d')
-
-  // Characters: mix of katakana, latin, digits — Matrix-style
   const CHARS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFZ><|/'
-
   let cols, drops
-
   function resize() {
     canvas.width  = window.innerWidth
     canvas.height = window.innerHeight
@@ -1198,32 +1233,93 @@ GROUP BY 1 ORDER BY 2 DESC;</pre>
   }
   resize()
   window.addEventListener('resize', resize)
-
   function draw() {
-    // Very light fade — white with high alpha so only the head is visible
     ctx.fillStyle = 'rgba(255,255,255,0.08)'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-    ctx.font = '14px "SF Mono", "Menlo", "Courier New", monospace'
-
+    ctx.font = '14px "SF Mono","Menlo","Courier New",monospace'
     for (let i = 0; i < cols; i++) {
       const char = CHARS[Math.floor(Math.random() * CHARS.length)]
-      const x = i * 18
-      const y = drops[i] * 18
-
-      // Head character — darkest
       ctx.fillStyle = 'rgba(0,0,0,0.9)'
-      ctx.fillText(char, x, y)
-
-      // Advance and reset
-      if (y > canvas.height && Math.random() > 0.975) {
-        drops[i] = 0
-      }
+      ctx.fillText(char, i * 18, drops[i] * 18)
+      if (drops[i] * 18 > canvas.height && Math.random() > 0.975) drops[i] = 0
       drops[i] += 0.4
     }
   }
-
   setInterval(draw, 55)
+})()
+
+// ── Hero matrix rain — white chars on black, glowing white head ───────────
+(function() {
+  const canvas = document.getElementById('hero-matrix')
+  const section = canvas.parentElement
+  const ctx = canvas.getContext('2d')
+
+  const CHARS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFZ><|/'
+  const COL_W = 18
+  const FONT_SIZE = 14
+
+  let cols, rows, drops, brightness
+
+  function resize() {
+    canvas.width  = section.offsetWidth
+    canvas.height = section.offsetHeight
+    cols = Math.floor(canvas.width  / COL_W)
+    rows = Math.ceil(canvas.height  / FONT_SIZE) + 4
+    drops      = Array.from({ length: cols }, () => Math.random() * -(rows * 0.8))
+    brightness = Array.from({ length: cols }, () => new Float32Array(rows).fill(0))
+  }
+  resize()
+  window.addEventListener('resize', resize)
+
+  function draw() {
+    // Clear transparent — background colour comes from the .hero CSS
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.font = `${FONT_SIZE}px "SF Mono","Menlo","Courier New",monospace`
+
+    for (let c = 0; c < cols; c++) {
+      drops[c] += 0.38
+      const head = Math.floor(drops[c])
+
+      if (head >= 0 && head < rows) brightness[c][head] = 1.0
+
+      // Reset when column exits bottom
+      if (head > rows + 4) {
+        drops[c] = -Math.floor(Math.random() * rows * 0.5)
+        brightness[c].fill(0)
+      }
+
+      for (let r = 0; r < rows; r++) {
+        const b = brightness[c][r]
+        if (b < 0.015) continue
+
+        const x = c * COL_W
+        const y = r * FONT_SIZE
+        const isHead = r === head
+
+        if (isHead) {
+          // Bright white head with a subtle glow
+          ctx.shadowBlur  = 10
+          ctx.shadowColor = 'rgba(255,255,255,0.9)'
+          ctx.fillStyle   = 'rgba(255,255,255,0.95)'
+        } else {
+          ctx.shadowBlur  = 0
+          ctx.shadowColor = 'transparent'
+          // Trail: fades from bright white → mid-white → dim
+          const alpha = Math.min(b * 0.75, 0.72)
+          ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(3)})`
+        }
+
+        ctx.fillText(CHARS[Math.floor(Math.random() * CHARS.length)], x, y)
+
+        // Decay — head stays bright, trail falls off quickly
+        brightness[c][r] *= isHead ? 0.94 : 0.76
+        if (brightness[c][r] < 0.01) brightness[c][r] = 0
+      }
+    }
+    ctx.shadowBlur = 0
+  }
+
+  setInterval(draw, 48)
 })()
 </script>
 
