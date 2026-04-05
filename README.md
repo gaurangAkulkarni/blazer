@@ -4,12 +4,12 @@
 
 # Blazer Studio
 
-**AI-powered local data studio for Mac**
+**AI-powered local data studio for macOS, Windows, and Linux**
 
 Chat with your data · Run DuckDB SQL · Build agentic analysis pipelines
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
-[![Platform: macOS](https://img.shields.io/badge/Platform-macOS-black.svg)](https://github.com/gaurangAkulkarni/blazer/releases)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-black.svg)](https://github.com/gaurangAkulkarni/blazer/releases)
 [![Built with Tauri](https://img.shields.io/badge/Built%20with-Tauri%202-black.svg)](https://tauri.app)
 [![DuckDB](https://img.shields.io/badge/Engine-DuckDB-black.svg)](https://duckdb.org)
 
@@ -68,10 +68,12 @@ The Blazer engine is a ground-up columnar compute engine built on [Apple MLX](ht
 
 ### Prerequisites
 
-- macOS 12+ (Apple Silicon or Intel)
+- macOS 12+, Windows 10+, or Linux (x64 / ARM64)
 - [Rust](https://rustup.rs) toolchain
 - [Node.js](https://nodejs.org) 18+
 - [Tauri CLI](https://tauri.app/start/prerequisites/) v2
+
+> **Note:** The Blazer engine (MLX-based) is Apple Silicon only. The DuckDB engine — which powers all current SQL features — runs on all three platforms.
 
 ### Run in development
 
