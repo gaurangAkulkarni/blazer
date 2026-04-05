@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 460" width="400" height="460">
+
+  <!-- Background -->
+  <rect width="400" height="460" fill="#fff"/>
+
+  <!-- ── App icon: black rounded square ── -->
+  <rect x="120" y="40" width="160" height="160" rx="32" fill="#000"/>
+
+  <!--
+    B letterform using evenodd fill-rule so the bowl interiors
+    are punched out as negative space.
+
+    Proportions (within a 90×100 grid, offset to centre inside the icon):
+      Outer shape: full B silhouette
+      Top cutout:  smaller bowl  (~36% of height)
+      Bottom cutout: larger bowl (~44% of height)
+    The top bowl is noticeably shorter so it never reads as "8".
+  -->
+  <g transform="translate(155, 65)">
+    <path
+      fill="white"
+      fill-rule="evenodd"
+      d="
+        M 6,0
+        L 6,104
+        L 56,104
+        Q 88,104 88,80
+        Q 88,60 64,56
+        Q 80,52 80,28
+        Q 80,0 52,0
+        Z
+
+        M 20,13
+        L 46,13
+        Q 66,13 66,26
+        Q 66,38 46,38
+        L 20,38
+        Z
+
+        M 20,58
+        L 54,58
+        Q 76,58 76,80
+        Q 76,96 54,96
+        L 20,96
+        Z
+      "
+    />
+  </g>
+
+  <!-- ── Minimal matrix accent: 3-pixel column, top-right of icon only ── -->
+  <rect x="264" y="52"  width="7" height="7" fill="#000" opacity="0.9"/>
+  <rect x="264" y="63"  width="7" height="7" fill="#000" opacity="0.55"/>
+  <rect x="264" y="74"  width="7" height="7" fill="#000" opacity="0.22"/>
+  <rect x="275" y="58"  width="7" height="7" fill="#000" opacity="0.7"/>
+  <rect x="275" y="69"  width="7" height="7" fill="#000" opacity="0.3"/>
+
+  <!-- ── Wordmark ── -->
+  <text
+    x="200" y="272"
+    text-anchor="middle"
+    font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif"
+    font-weight="700"
+    font-size="44"
+    letter-spacing="5"
+    fill="#000"
+  >BLAZER</text>
+
+  <text
+    x="200" y="302"
+    text-anchor="middle"
+    font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif"
+    font-weight="300"
+    font-size="13"
+    letter-spacing="9"
+    fill="#666"
+  >STUDIO</text>
+
+</svg>

@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Blazer Studio — AI-powered data analysis desktop app</title>
+  <meta name="description" content="Blazer Studio is an open-source, AI-powered desktop data studio. Chat with your data, run SQL, explore schemas — all locally on your Mac."/>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --black:   #000000;
+      --white:   #ffffff;
+      --gray-1:  #f5f5f7;
+      --gray-2:  #e8e8ed;
+      --gray-3:  #6e6e73;
+      --gray-4:  #1d1d1f;
+      --radius:  12px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+      background: var(--white);
+      color: var(--black);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* ── Canvas (matrix rain) ─────────────────────────────────────── */
+    #matrix-canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ── Layout helpers ───────────────────────────────────────────── */
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    section { position: relative; z-index: 1; }
+
+    /* ── Nav ──────────────────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.82);
+      -webkit-backdrop-filter: blur(20px);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(0,0,0,0.08);
+    }
+    .nav-inner {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--black);
+    }
+    .nav-logo-mark {
+      width: 28px;
+      height: 28px;
+    }
+    .nav-logo-text {
+      font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+      font-weight: 600;
+      font-size: 17px;
+      letter-spacing: 0.04em;
+    }
+    .nav-logo-sub {
+      font-weight: 300;
+      font-size: 14px;
+      color: var(--gray-3);
+      letter-spacing: 0.06em;
+    }
+    nav ul {
+      list-style: none;
+      display: flex;
+      gap: 28px;
+    }
+    nav a {
+      text-decoration: none;
+      font-size: 14px;
+      color: var(--gray-4);
+      transition: color .2s;
+    }
+    nav a:hover { color: var(--black); }
+    .nav-gh {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 5px 14px;
+      border: 1px solid rgba(0,0,0,0.18);
+      border-radius: 20px;
+      color: var(--black) !important;
+      transition: background .2s, border-color .2s;
+    }
+    .nav-gh:hover { background: var(--gray-1); }
+
+    /* ── Hero ─────────────────────────────────────────────────────── */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+    }
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--gray-3);
+      background: var(--gray-1);
+      border: 1px solid var(--gray-2);
+      border-radius: 20px;
+      padding: 4px 14px;
+      margin-bottom: 32px;
+    }
+    .hero-eyebrow span { color: var(--black); font-weight: 600; }
+
+    .hero-logo {
+      width: 96px;
+      height: 96px;
+      margin-bottom: 32px;
+    }
+
+    h1 {
+      font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+      font-size: clamp(48px, 8vw, 84px);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.0;
+      color: var(--black);
+      margin-bottom: 8px;
+    }
+    .h1-sub {
+      font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+      font-size: clamp(28px, 4vw, 44px);
+      font-weight: 300;
+      letter-spacing: -0.01em;
+      color: var(--gray-3);
+      margin-bottom: 28px;
+    }
+    .hero-desc {
+      max-width: 580px;
+      font-size: 19px;
+      line-height: 1.6;
+      color: var(--gray-3);
+      font-weight: 300;
+      margin-bottom: 48px;
+    }
+
+    .hero-cta {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--black);
+      color: var(--white);
+      padding: 14px 28px;
+      border-radius: 980px;
+      font-size: 15px;
+      font-weight: 500;
+      text-decoration: none;
+      letter-spacing: 0.01em;
+      transition: opacity .2s;
+    }
+    .btn-primary:hover { opacity: 0.82; }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: transparent;
+      color: var(--black);
+      padding: 14px 28px;
+      border-radius: 980px;
+      font-size: 15px;
+      font-weight: 500;
+      text-decoration: none;
+      border: 1.5px solid rgba(0,0,0,0.22);
+      letter-spacing: 0.01em;
+      transition: background .2s;
+    }
+    .btn-secondary:hover { background: var(--gray-1); }
+
+    /* ── Status banner ────────────────────────────────────────────── */
+    .status-bar {
+      position: relative;
+      z-index: 1;
+      background: var(--gray-1);
+      border-top: 1px solid var(--gray-2);
+      border-bottom: 1px solid var(--gray-2);
+      padding: 16px 24px;
+    }
+    .status-inner {
+      max-width: 960px;
+      margin: 0 auto;
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .status-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--gray-3);
+      margin-right: 8px;
+    }
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--gray-4);
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-green  { background: #30d158; }
+    .dot-amber  { background: #ff9f0a; }
+    .dot-gray   { background: #aeaeb2; }
+
+    /* ── Features grid ────────────────────────────────────────────── */
+    .features {
+      padding: 96px 0;
+      background: var(--white);
+    }
+    .section-eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--gray-3);
+      margin-bottom: 16px;
+    }
+    h2 {
+      font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+      font-size: clamp(32px, 5vw, 52px);
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1.05;
+      color: var(--black);
+      margin-bottom: 56px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 2px;
+      background: var(--gray-2);
+      border: 1px solid var(--gray-2);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .feature-card {
+      background: var(--white);
+      padding: 36px 32px;
+    }
+    .feature-icon {
+      width: 44px;
+      height: 44px;
+      background: var(--black);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .feature-icon svg { color: white; }
+    .feature-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 8px;
+      color: var(--black);
+    }
+    .feature-card p {
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--gray-3);
+    }
+
+    /* ── Engine status section ────────────────────────────────────── */
+    .engines {
+      padding: 80px 0;
+      background: var(--gray-1);
+      border-top: 1px solid var(--gray-2);
+      border-bottom: 1px solid var(--gray-2);
+    }
+    .engine-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-top: 48px;
+    }
+    @media (max-width: 640px) { .engine-grid { grid-template-columns: 1fr; } }
+    .engine-card {
+      background: var(--white);
+      border: 1px solid var(--gray-2);
+      border-radius: var(--radius);
+      padding: 32px;
+    }
+    .engine-card.active { border-color: var(--black); }
+    .engine-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+    }
+    .badge-stable { background: #e9f9ee; color: #1c7c3b; }
+    .badge-wip    { background: #fff4e5; color: #b45309; }
+    .engine-card h3 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 8px;
+    }
+    .engine-card p {
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--gray-3);
+      margin-bottom: 16px;
+    }
+    .engine-detail {
+      font-size: 12px;
+      color: var(--gray-3);
+      line-height: 1.6;
+      border-top: 1px solid var(--gray-2);
+      padding-top: 16px;
+      margin-top: 8px;
+    }
+    .engine-detail strong { color: var(--gray-4); }
+
+    /* ── Code preview ─────────────────────────────────────────────── */
+    .code-section {
+      padding: 96px 0;
+    }
+    .code-window {
+      background: var(--black);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-top: 48px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.18);
+    }
+    .code-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .traffic { width: 12px; height: 12px; border-radius: 50%; }
+    .t-red   { background: #ff5f57; }
+    .t-yellow{ background: #febc2e; }
+    .t-green { background: #28c840; }
+    .code-titlebar span {
+      margin-left: 8px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.3);
+      font-family: 'SF Mono', 'Menlo', monospace;
+    }
+    .code-body {
+      padding: 28px 32px;
+      font-family: 'SF Mono', 'Menlo', 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.8;
+      color: rgba(255,255,255,0.85);
+    }
+    .kw   { color: #ff7ab2; }
+    .fn   { color: #67c7f5; }
+    .str  { color: #fc6; }
+    .cmt  { color: rgba(255,255,255,0.28); font-style: italic; }
+    .num  { color: #d9c97c; }
+
+    /* ── Agentic demo ─────────────────────────────────────────────── */
+    .agentic-section {
+      padding: 80px 0;
+      background: var(--gray-1);
+      border-top: 1px solid var(--gray-2);
+    }
+    .chat-demo {
+      margin-top: 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-width: 680px;
+    }
+    .chat-msg {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .chat-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .avatar-user { background: var(--black); color: var(--white); }
+    .avatar-ai   { background: var(--gray-2); color: var(--gray-4); border: 1px solid var(--gray-2); }
+    .chat-bubble {
+      padding: 12px 16px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.55;
+      max-width: 520px;
+    }
+    .bubble-user {
+      background: var(--black);
+      color: var(--white);
+      border-bottom-right-radius: 4px;
+    }
+    .bubble-ai {
+      background: var(--white);
+      color: var(--gray-4);
+      border: 1px solid var(--gray-2);
+      border-bottom-left-radius: 4px;
+    }
+    .bubble-ai code {
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 11px;
+      background: var(--gray-1);
+      padding: 1px 5px;
+      border-radius: 4px;
+      color: var(--black);
+    }
+    .plan-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--black);
+      color: var(--white);
+      padding: 2px 9px;
+      border-radius: 20px;
+      margin-bottom: 6px;
+    }
+
+    /* ── Open-source section ──────────────────────────────────────── */
+    .oss-section {
+      padding: 96px 0;
+      text-align: center;
+    }
+    .oss-section p {
+      max-width: 560px;
+      margin: 16px auto 40px;
+      font-size: 18px;
+      font-weight: 300;
+      line-height: 1.65;
+      color: var(--gray-3);
+    }
+    .oss-meta {
+      display: flex;
+      gap: 28px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 48px;
+    }
+    .oss-stat {
+      text-align: center;
+    }
+    .oss-stat .num {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--black);
+      display: block;
+    }
+    .oss-stat .lbl {
+      font-size: 13px;
+      color: var(--gray-3);
+      margin-top: 2px;
+    }
+
+    /* ── Footer ───────────────────────────────────────────────────── */
+    footer {
+      position: relative;
+      z-index: 1;
+      padding: 40px 24px;
+      border-top: 1px solid var(--gray-2);
+      background: var(--white);
+    }
+    .footer-inner {
+      max-width: 960px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    footer p {
+      font-size: 12px;
+      color: var(--gray-3);
+      line-height: 1.6;
+    }
+    footer a { color: var(--gray-3); text-decoration: none; }
+    footer a:hover { color: var(--black); }
+    .footer-links { display: flex; gap: 20px; }
+
+    /* matrix rain chars should be barely visible on white */
+    #matrix-canvas { opacity: 0.04; }
+
+    @media (max-width: 640px) {
+      .grid-3 { background: transparent; border-color: transparent; gap: 16px; }
+      .feature-card { border: 1px solid var(--gray-2); border-radius: var(--radius); }
+      nav ul { display: none; }
+      .engine-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Matrix rain canvas -->
+<canvas id="matrix-canvas"></canvas>
+
+<!-- Nav -->
+<nav>
+  <div class="nav-inner">
+    <a href="#" class="nav-logo">
+      <!-- Inline mini logo mark -->
+      <svg class="nav-logo-mark" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="28" height="28" rx="6" fill="#000"/>
+        <!-- Pixel rain drops -->
+        <rect x="4" y="4" width="3" height="3" fill="white" opacity="0.9"/>
+        <rect x="4" y="9" width="3" height="3" fill="white" opacity="0.5"/>
+        <rect x="4" y="14" width="3" height="3" fill="white" opacity="0.2"/>
+        <rect x="21" y="6" width="3" height="3" fill="white" opacity="0.85"/>
+        <rect x="21" y="11" width="3" height="3" fill="white" opacity="0.4"/>
+        <!-- B letterform -->
+        <rect x="9" y="6" width="3" height="16" fill="white"/>
+        <rect x="9" y="6" width="9" height="2.5" fill="white"/>
+        <rect x="9" y="13" width="9" height="2" fill="white"/>
+        <rect x="9" y="19.5" width="9" height="2.5" fill="white"/>
+        <rect x="17" y="6" width="2.5" height="7" rx="1" fill="white"/>
+        <rect x="17" y="13" width="2.5" height="9" rx="1" fill="white"/>
+      </svg>
+      <span>
+        <span class="nav-logo-text">Blazer</span>
+        <span class="nav-logo-sub"> Studio</span>
+      </span>
+    </a>
+    <ul>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#engines">Engines</a></li>
+      <li><a href="#open-source">Open Source</a></li>
+    </ul>
+    <a href="https://github.com/gaurangAkulkarni/blazer" class="nav-gh" target="_blank" rel="noopener">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+      </svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-eyebrow">
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+      <circle cx="5" cy="5" r="4" fill="#30d158"/>
+    </svg>
+    Open source · Free · macOS
+  </div>
+
+  <!-- Hero logo mark (larger) -->
+  <svg class="hero-logo" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="96" height="96" rx="20" fill="#000"/>
+    <!-- Matrix rain drops left -->
+    <rect x="10" y="12" width="5" height="5" fill="white" opacity="0.9"/>
+    <rect x="10" y="20" width="5" height="5" fill="white" opacity="0.6"/>
+    <rect x="10" y="28" width="5" height="5" fill="white" opacity="0.3"/>
+    <rect x="10" y="36" width="5" height="5" fill="white" opacity="0.12"/>
+    <rect x="17" y="16" width="5" height="5" fill="white" opacity="0.8"/>
+    <rect x="17" y="24" width="5" height="5" fill="white" opacity="0.45"/>
+    <rect x="17" y="32" width="5" height="5" fill="white" opacity="0.18"/>
+    <!-- Matrix rain drops right -->
+    <rect x="74" y="14" width="5" height="5" fill="white" opacity="0.85"/>
+    <rect x="74" y="22" width="5" height="5" fill="white" opacity="0.5"/>
+    <rect x="74" y="30" width="5" height="5" fill="white" opacity="0.2"/>
+    <rect x="81" y="18" width="5" height="5" fill="white" opacity="0.75"/>
+    <rect x="81" y="26" width="5" height="5" fill="white" opacity="0.35"/>
+    <!-- B letterform -->
+    <rect x="30" y="20" width="8" height="56" fill="white"/>
+    <rect x="30" y="20" width="26" height="7" fill="white"/>
+    <rect x="30" y="44" width="26" height="6" fill="white"/>
+    <rect x="30" y="69" width="28" height="7" fill="white"/>
+    <rect x="54" y="20" width="7" height="24" rx="3.5" fill="white"/>
+    <rect x="54" y="44" width="8" height="32" rx="4" fill="white"/>
+  </svg>
+
+  <h1>Blazer</h1>
+  <p class="h1-sub">Smart Data Studio</p>
+  <p class="hero-desc">
+    An open-source desktop app for exploring and analysing data
+    with AI. Chat with your files, run SQL instantly, build agentic
+    analysis pipelines — all running locally on your Mac.
+  </p>
+  <div class="hero-cta">
+    <a href="https://github.com/gaurangAkulkarni/blazer/releases" class="btn-primary" target="_blank" rel="noopener">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Download for Mac
+    </a>
+    <a href="https://github.com/gaurangAkulkarni/blazer" class="btn-secondary" target="_blank" rel="noopener">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+      </svg>
+      View on GitHub
+    </a>
+  </div>
+</section>
+
+<!-- Engine status banner -->
+<div class="status-bar">
+  <div class="status-inner">
+    <span class="status-label">Engine Status</span>
+    <div class="status-item">
+      <span class="dot dot-green"></span>
+      <strong>DuckDB Engine</strong>&nbsp;— stable, primary focus
+    </div>
+    <div class="status-item">
+      <span class="dot dot-amber"></span>
+      <strong>Blazer Engine</strong>&nbsp;— work in progress · MLX (Apple Silicon) only
+    </div>
+  </div>
+</div>
+
+<!-- Features -->
+<section class="features" id="features">
+  <div class="container">
+    <p class="section-eyebrow">What it does</p>
+    <h2>Everything in one<br/>data workspace.</h2>
+    <div class="grid-3">
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <h3>AI Chat</h3>
+        <p>Ask questions in plain English. The AI generates SQL, runs it, reads the results, and answers you — using the full result table, not just a row count.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+        </div>
+        <h3>DuckDB Console</h3>
+        <p>A full SQL console powered by DuckDB. Query Parquet, CSV, Excel, and JSON files directly from disk. Syntax highlighting, history, and snippet library included.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+        </div>
+        <h3>Agentic Mode</h3>
+        <p>Describe a goal. The agent plans steps, runs queries, reads data, adapts to findings, and delivers a grounded assessment — autonomously.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+          </svg>
+        </div>
+        <h3>Result Pane</h3>
+        <p>Every query result opens in a dedicated pane. Collapse, expand, chart, export as CSV, or scroll-highlight from the chat — all from one view.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </div>
+        <h3>Schema Explorer</h3>
+        <p>Automatically detects columns, types, and cardinality from loaded files. Column-level statistics and a data profiler built in.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <h3>Multi-Provider LLM</h3>
+        <p>Works with Anthropic Claude, OpenAI, and any local Ollama model. Switch models per session. Custom base URL support for proxies and private deployments.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- Engines -->
+<section class="engines" id="engines">
+  <div class="container">
+    <p class="section-eyebrow">Under the hood</p>
+    <h2>Two engines.<br/>One is ready.</h2>
+    <div class="engine-grid">
+
+      <div class="engine-card active">
+        <span class="engine-badge badge-stable">
+          <span class="dot dot-green" style="width:6px;height:6px;"></span>
+          Stable · Primary
+        </span>
+        <h3>DuckDB Engine</h3>
+        <p>The main query engine today. Handles Parquet, CSV, Excel, and JSON natively with blazing-fast in-process analytics.</p>
+        <div class="engine-detail">
+          <strong>Works on:</strong> macOS, Linux, Windows<br/>
+          <strong>Format support:</strong> Parquet, CSV/TSV, XLSX, JSON, directories<br/>
+          <strong>Focus:</strong> All active development, all SQL features
+        </div>
+      </div>
+
+      <div class="engine-card">
+        <span class="engine-badge badge-wip">
+          <span class="dot dot-amber" style="width:6px;height:6px;"></span>
+          Work in Progress
+        </span>
+        <h3>Blazer Engine</h3>
+        <p>A ground-up columnar engine built on Apple MLX, designed for GPU-accelerated data computation on Apple Silicon Macs.</p>
+        <div class="engine-detail">
+          <strong>Requires:</strong> Apple Silicon (M1/M2/M3/M4)<br/>
+          <strong>Backend:</strong> MLX — Apple's machine learning framework, Metal GPU<br/>
+          <strong>Status:</strong> Core operators scaffolded, not yet production-ready.<br/>
+          The Python and Node.js bindings are available for early experimentation.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- Code preview -->
+<section class="code-section">
+  <div class="container">
+    <p class="section-eyebrow">SQL Console</p>
+    <h2>Write SQL, see results<br/>in milliseconds.</h2>
+
+    <div class="code-window">
+      <div class="code-titlebar">
+        <span class="traffic t-red"></span>
+        <span class="traffic t-yellow"></span>
+        <span class="traffic t-green"></span>
+        <span>DuckDB Console — nyc_trips.parquet</span>
+      </div>
+      <div class="code-body">
+        <span class="cmt">-- Monthly revenue trend</span><br/>
+        <span class="kw">SELECT</span><br/>
+        &nbsp;&nbsp;<span class="fn">strftime</span>(tpep_pickup_datetime, <span class="str">'%Y-%m'</span>) <span class="kw">AS</span> month,<br/>
+        &nbsp;&nbsp;<span class="fn">count</span>(*) <span class="kw">AS</span> trips,<br/>
+        &nbsp;&nbsp;<span class="fn">round</span>(<span class="fn">avg</span>(fare_amount), <span class="num">2</span>) <span class="kw">AS</span> avg_fare,<br/>
+        &nbsp;&nbsp;<span class="fn">sum</span>(fare_amount) <span class="kw">AS</span> total_revenue<br/>
+        <span class="kw">FROM</span> <span class="fn">read_parquet</span>(<span class="str">'/data/trips/*.parquet'</span>)<br/>
+        <span class="kw">GROUP BY</span> <span class="num">1</span><br/>
+        <span class="kw">ORDER BY</span> <span class="num">1</span>;<br/><br/>
+        <span class="cmt">-- ✓ 47,248,845 rows scanned in 312ms</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Agentic demo -->
+<section class="agentic-section">
+  <div class="container">
+    <p class="section-eyebrow">Agentic Mode</p>
+    <h2>Tell it your goal.<br/>It figures out the rest.</h2>
+
+    <div class="chat-demo">
+      <div class="chat-msg">
+        <div class="chat-avatar avatar-user">G</div>
+        <div class="chat-bubble bubble-user">
+          Analyse the NYC taxi dataset. I want to understand revenue trends, payment patterns, and flag any data quality issues.
+        </div>
+      </div>
+      <div class="chat-msg">
+        <div class="chat-avatar avatar-ai">AI</div>
+        <div class="chat-bubble bubble-ai">
+          <div class="plan-badge">Plan · 5 steps</div><br/>
+          1. Inspect schema &amp; file structure<br/>
+          2. Monthly revenue trend analysis<br/>
+          3. Payment type distribution<br/>
+          4. Data quality check (nulls, negatives, outliers)<br/>
+          5. Synthesize findings &amp; provide final assessment<br/><br/>
+          Starting Step 1 — running <code>DESCRIBE</code> on the parquet files…
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Open Source -->
+<section class="oss-section" id="open-source">
+  <div class="container">
+    <p class="section-eyebrow">Open Source</p>
+    <h2>Built in the open.</h2>
+    <p>
+      Blazer Studio is free, open-source, and built by an individual developer.
+      No telemetry, no accounts, no cloud. Your data never leaves your machine.
+    </p>
+    <div class="hero-cta" style="justify-content:center">
+      <a href="https://github.com/gaurangAkulkarni/blazer" class="btn-primary" target="_blank" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+        </svg>
+        Star on GitHub
+      </a>
+      <a href="https://github.com/gaurangAkulkarni/blazer/issues" class="btn-secondary" target="_blank" rel="noopener">
+        Report an Issue
+      </a>
+    </div>
+    <div class="oss-meta">
+      <div class="oss-stat"><span class="num">Rust</span><span class="lbl">Core engine</span></div>
+      <div class="oss-stat"><span class="num">Tauri 2</span><span class="lbl">Desktop framework</span></div>
+      <div class="oss-stat"><span class="num">DuckDB</span><span class="lbl">SQL engine</span></div>
+      <div class="oss-stat"><span class="num">MIT</span><span class="lbl">License</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-inner">
+    <p>
+      © 2025 Gaurang A. Kulkarni · Blazer Studio is an independent open-source project,
+      not affiliated with Kvell.<br/>
+      Built with Rust, Tauri, DuckDB, and React.
+    </p>
+    <div class="footer-links">
+      <a href="https://github.com/gaurangAkulkarni/blazer" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/gaurangAkulkarni/blazer/releases" target="_blank" rel="noopener">Releases</a>
+      <a href="https://github.com/gaurangAkulkarni/blazer/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// ── Matrix rain animation ──────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('matrix-canvas')
+  const ctx = canvas.getContext('2d')
+
+  // Characters: mix of katakana, latin, digits — Matrix-style
+  const CHARS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFZ><|/'
+
+  let cols, drops
+
+  function resize() {
+    canvas.width  = window.innerWidth
+    canvas.height = window.innerHeight
+    cols  = Math.floor(canvas.width / 18)
+    drops = Array.from({ length: cols }, () => Math.random() * -canvas.height / 18)
+  }
+  resize()
+  window.addEventListener('resize', resize)
+
+  function draw() {
+    // Very light fade — white with high alpha so only the head is visible
+    ctx.fillStyle = 'rgba(255,255,255,0.08)'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    ctx.font = '14px "SF Mono", "Menlo", "Courier New", monospace'
+
+    for (let i = 0; i < cols; i++) {
+      const char = CHARS[Math.floor(Math.random() * CHARS.length)]
+      const x = i * 18
+      const y = drops[i] * 18
+
+      // Head character — darkest
+      ctx.fillStyle = 'rgba(0,0,0,0.9)'
+      ctx.fillText(char, x, y)
+
+      // Advance and reset
+      if (y > canvas.height && Math.random() > 0.975) {
+        drops[i] = 0
+      }
+      drops[i] += 0.4
+    }
+  }
+
+  setInterval(draw, 55)
+})()
+</script>
+
+</body>
+</html>
