@@ -26,3 +26,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Claude Code local config
+.claude/launch.json
