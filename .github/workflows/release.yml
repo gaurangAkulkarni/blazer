@@ -1,0 +1,105 @@
+name: Release
+
+# Triggers on version tags: git tag v0.1.0 && git push --tags
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    permissions:
+      contents: write   # needed to create the GitHub Release
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── macOS (Intel + Apple Silicon via universal binary) ──────────
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+
+          # ── Windows ────────────────────────────────────────────────────
+          - platform: windows-latest
+            args: ''
+
+          # ── Linux (Debian/Ubuntu) ───────────────────────────────────────
+          - platform: ubuntu-22.04
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js (for Vite / React UI build) ─────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: playground/ui/package-lock.json
+
+      # ── 3. Rust stable ─────────────────────────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # universal-apple-darwin needs both Apple Silicon and Intel targets
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      # ── 4. Rust build cache (speeds up subsequent runs significantly) ───
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: playground -> target
+
+      # ── 5. Linux system dependencies required by Tauri + WebKit ─────────
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            pkg-config
+
+      # ── 6. Install frontend dependencies ───────────────────────────────
+      - name: Install frontend dependencies
+        working-directory: playground/ui
+        run: npm ci
+
+      # ── 7. Build & bundle with Tauri ────────────────────────────────────
+      #    tauri-action handles: npm build → cargo build → bundling → upload
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Blazer Studio ${{ github.ref_name }}'
+          releaseBody: |
+            ## Blazer Studio ${{ github.ref_name }}
+
+            ### Download
+            | Platform | File |
+            |----------|------|
+            | macOS (Apple Silicon + Intel) | `.dmg` |
+            | Windows | `.msi` or `.exe` |
+            | Linux | `.deb` · `.rpm` · `.AppImage` |
+
+            ### What's included
+            - DuckDB SQL engine (statically linked — no separate install needed)
+            - AI Chat with Claude, OpenAI, and local Ollama models
+            - Agentic analysis mode with plan timeline
+            - Schema explorer, query history, snippet library
+
+            > **Note:** Blazer Engine (MLX) is a separate component — only the DuckDB engine ships in this release.
+          releaseDraft: true
+          prerelease: false
+          projectPath: playground
+          args: ${{ matrix.args }}
