@@ -312,7 +312,8 @@ export default function App() {
     // Only act on true → false transition
     if (!wasStreaming || isStreaming) return
 
-    // Reset per-turn query tracker
+    // Capture per-turn query flag BEFORE resetting so text-only path can check it
+    const queryRanThisTurn = agenticQueryRanRef.current
     agenticQueryRanRef.current = false
 
     const lastMsg = messages[messages.length - 1]
@@ -327,15 +328,19 @@ export default function App() {
       }
     }
 
-    // Detect DONE signal — stop the loop.
-    // Guard: if the DONE message has no substantial content before it, the LLM
-    // skipped the final assessment. Request it instead of stopping.
-    if (agenticActiveRef.current && /^\s*DONE\s*$/m.test(lastMsg.content)) {
-      const beforeDone = lastMsg.content.replace(/\n*\s*DONE\s*$/, '').trim()
+    // ── DONE detection ────────────────────────────────────────────────────────
+    // Match DONE in any of the forms the LLM commonly produces:
+    //   - "DONE" on its own line (strict)          ← original
+    //   - "**DONE**" or "*DONE*" (markdown bold)
+    //   - "Done", "done" (case variants)
+    //   - "DONE" at the very end of the message
+    const DONE_RE = /(?:^\s*\*{0,2}DONE\*{0,2}\s*$|\*{0,2}DONE\*{0,2}\s*$)/im
+    if (agenticActiveRef.current && DONE_RE.test(lastMsg.content)) {
+      const beforeDone = lastMsg.content.replace(/\n*\s*\*{0,2}DONE\*{0,2}\s*$/i, '').trim()
       const hasAssessment = beforeDone.length > 150
 
       if (!hasAssessment) {
-        // DONE said without an actual response — ask for the assessment first
+        // LLM said DONE without writing the assessment — ask for it
         agenticIterationRef.current += 1
         setAgenticIteration(agenticIterationRef.current)
         if (agenticIterationRef.current >= MAX_AGENTIC_ITER) { stopAgenticLoop(); return }
@@ -352,14 +357,27 @@ export default function App() {
       return
     }
 
-    // Text-only step detection — replaces the old 1200ms timer.
-    // If the LLM's response contains a ```sql block, a QueryBlock will auto-run
-    // and handleQueryResult will send the continuation when done.
-    // If there is NO sql block, no query will ever fire — advance the step now.
+    // ── Auto-stop at final step with substantial content ──────────────────────
+    // If the LLM forgot to write DONE but delivered a full final-step response,
+    // stop gracefully rather than looping forever.
     if (agenticActiveRef.current) {
-      const hasSql = /```sql/.test(lastMsg.content)
-      if (!hasSql) {
-        // Pure text/analysis response — no query running, advance immediately
+      const atFinalStep = agenticCurrentStepRef.current >= agenticPlanStepsRef.current.length - 1
+      const hasSubstantialContent = lastMsg.content.trim().length > 400
+      const hasSql = /```sql/i.test(lastMsg.content)
+      if (atFinalStep && hasSubstantialContent && !hasSql) {
+        setAgenticCurrentStep(agenticPlanStepsRef.current.length)
+        agenticCurrentStepRef.current = agenticPlanStepsRef.current.length
+        stopAgenticLoop()
+        return
+      }
+    }
+
+    // ── Text-only step advancement ────────────────────────────────────────────
+    // If the LLM's response has no SQL block AND no query already ran this turn,
+    // no QueryBlock will fire — send the continuation directly.
+    if (agenticActiveRef.current) {
+      const hasSql = /```sql/i.test(lastMsg.content)
+      if (!hasSql && !queryRanThisTurn) {
         agenticIterationRef.current += 1
         setAgenticIteration(agenticIterationRef.current)
         if (agenticIterationRef.current >= MAX_AGENTIC_ITER) { stopAgenticLoop(); return }
@@ -375,8 +393,7 @@ export default function App() {
           undefined, undefined, { agenticContinuation: true },
         )
       }
-      // If SQL is present — handleQueryResult will fire when the query completes.
-      // Do NOT advance the step here; the query result drives the next turn.
+      // If SQL is present OR a query already ran — handleQueryResult drives the next turn.
     }
   })
 
