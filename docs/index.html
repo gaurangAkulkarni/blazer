@@ -126,7 +126,7 @@
       justify-content: center;
       text-align: center;
       padding: 120px 24px 80px;
-      background: #050505;
+      background: var(--white);
     }
     #hero-matrix {
       position: absolute;
@@ -136,46 +136,27 @@
       pointer-events: none;
       z-index: 0;
     }
-    /* Radial vignette so centre content stays readable */
+    /* Radial vignette — white centre keeps text crisp, dims edges */
     .hero::before {
       content: '';
       position: absolute;
       inset: 0;
-      background: radial-gradient(ellipse 60% 55% at 50% 50%, transparent 30%, rgba(0,0,0,0.72) 100%);
+      background: radial-gradient(ellipse 55% 50% at 50% 48%, rgba(255,255,255,0.92) 30%, rgba(255,255,255,0.4) 65%, transparent 100%);
       pointer-events: none;
       z-index: 1;
     }
-    /* Fade out to white at the bottom */
+    /* Fade to white at the bottom */
     .hero::after {
       content: '';
       position: absolute;
       left: 0; right: 0; bottom: 0;
-      height: 220px;
+      height: 180px;
       background: linear-gradient(to bottom, transparent, #ffffff);
       pointer-events: none;
       z-index: 1;
     }
-    /* All hero text content sits above canvas + overlays */
+    /* All hero content above canvas + overlays */
     .hero > * { position: relative; z-index: 2; }
-
-    /* Hero text colours on dark background */
-    .hero h1 { color: #ffffff; }
-    .hero .h1-sub { color: rgba(255,255,255,0.45); }
-    .hero .hero-desc { color: rgba(255,255,255,0.5); }
-    .hero .hero-eyebrow {
-      background: rgba(255,255,255,0.07);
-      border-color: rgba(255,255,255,0.12);
-      color: rgba(255,255,255,0.5);
-    }
-    .hero .hero-eyebrow span { color: #fff; }
-    .hero .btn-primary { background: #fff; color: #000; }
-    .hero .btn-primary:hover { opacity: 0.88; }
-    .hero .btn-secondary {
-      background: transparent;
-      color: #fff;
-      border-color: rgba(255,255,255,0.28);
-    }
-    .hero .btn-secondary:hover { background: rgba(255,255,255,0.08); }
     .hero-eyebrow {
       display: inline-flex;
       align-items: center;
@@ -1286,13 +1267,13 @@ window.addEventListener('DOMContentLoaded', function() {
         if (b < 0.015) continue
         var isHead = r === head
         if (isHead) {
-          hctx.shadowBlur = 10
-          hctx.shadowColor = 'rgba(255,255,255,0.9)'
-          hctx.fillStyle = 'rgba(255,255,255,0.95)'
+          hctx.shadowBlur = 0
+          hctx.shadowColor = 'transparent'
+          hctx.fillStyle = 'rgba(0,0,0,0.82)'
         } else {
           hctx.shadowBlur = 0
           hctx.shadowColor = 'transparent'
-          hctx.fillStyle = 'rgba(255,255,255,' + Math.min(b * 0.75, 0.72).toFixed(3) + ')'
+          hctx.fillStyle = 'rgba(0,0,0,' + Math.min(b * 0.55, 0.55).toFixed(3) + ')'
         }
         hctx.fillText(HCHARS[Math.floor(Math.random() * HCHARS.length)], c * HCOL, r * HFS)
         hbright[c][r] *= isHead ? 0.94 : 0.76
