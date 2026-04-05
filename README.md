@@ -167,4 +167,4 @@ This project uses the following open-source dependencies. Their licenses are ind
 | [Apple MLX](https://github.com/ml-explore/mlx) | MIT | © Apple Inc. |
 | [React](https://react.dev) | MIT | © Meta Platforms, Inc. |
 
-> Blazer Studio is an independent personal open-source project. It is not affiliated with, endorsed by, or sponsored by Kvell, DuckDB Foundation, DuckDB Labs, Apple Inc., or any other organisation.
+> Blazer Studio is an independent personal open-source project. It is not affiliated with, endorsed by, or sponsored by DuckDB Foundation, DuckDB Labs, Apple Inc., or any other organisation.

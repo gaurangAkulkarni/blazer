@@ -870,12 +870,65 @@
   </div>
 </section>
 
+<!-- Third-party notices -->
+<section style="position:relative;z-index:1;background:var(--gray-1);border-top:1px solid var(--gray-2);padding:56px 0;">
+  <div class="container">
+    <p class="section-eyebrow">Open Source Notices</p>
+    <h2 style="font-size:clamp(24px,3vw,36px);margin-bottom:24px;">Built on great open-source work.</h2>
+    <p style="font-size:15px;color:var(--gray-3);max-width:640px;line-height:1.7;margin-bottom:36px;">
+      Blazer Studio is built on top of open-source libraries. The following are key dependencies, their licenses, and copyright holders. Blazer Studio is not affiliated with, endorsed by, or sponsored by any of these projects or organisations.
+    </p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:2px solid var(--gray-2);">
+          <th style="text-align:left;padding:8px 16px 8px 0;color:var(--gray-3);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;font-size:11px;">Dependency</th>
+          <th style="text-align:left;padding:8px 16px 8px 0;color:var(--gray-3);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;font-size:11px;">License</th>
+          <th style="text-align:left;padding:8px 0;color:var(--gray-3);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;font-size:11px;">Copyright</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid var(--gray-2);">
+          <td style="padding:12px 16px 12px 0;font-weight:500;color:var(--black);">
+            <a href="https://duckdb.org" target="_blank" rel="noopener" style="color:var(--black);">DuckDB</a>
+            <span style="display:block;font-size:11px;color:var(--gray-3);font-weight:400;margin-top:2px;">Embedded SQL analytics engine, used as a library dependency via the duckdb Rust crate. Not modified or forked.</span>
+          </td>
+          <td style="padding:12px 16px 12px 0;color:var(--gray-4);">MIT</td>
+          <td style="padding:12px 0;color:var(--gray-4);">© Stichting DuckDB Foundation</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--gray-2);">
+          <td style="padding:12px 16px 12px 0;font-weight:500;color:var(--black);">
+            <a href="https://tauri.app" target="_blank" rel="noopener" style="color:var(--black);">Tauri</a>
+            <span style="display:block;font-size:11px;color:var(--gray-3);font-weight:400;margin-top:2px;">Desktop application framework (Rust + WebView).</span>
+          </td>
+          <td style="padding:12px 16px 12px 0;color:var(--gray-4);">MIT / Apache 2.0</td>
+          <td style="padding:12px 0;color:var(--gray-4);">© Tauri Programme within the Commons Conservancy</td>
+        </tr>
+        <tr style="border-bottom:1px solid var(--gray-2);">
+          <td style="padding:12px 16px 12px 0;font-weight:500;color:var(--black);">
+            <a href="https://github.com/ml-explore/mlx" target="_blank" rel="noopener" style="color:var(--black);">Apple MLX</a>
+            <span style="display:block;font-size:11px;color:var(--gray-3);font-weight:400;margin-top:2px;">Machine learning framework used by the Blazer engine (WIP). Apple Silicon only.</span>
+          </td>
+          <td style="padding:12px 16px 12px 0;color:var(--gray-4);">MIT</td>
+          <td style="padding:12px 0;color:var(--gray-4);">© Apple Inc.</td>
+        </tr>
+        <tr>
+          <td style="padding:12px 16px 12px 0;font-weight:500;color:var(--black);">
+            <a href="https://react.dev" target="_blank" rel="noopener" style="color:var(--black);">React</a>
+            <span style="display:block;font-size:11px;color:var(--gray-3);font-weight:400;margin-top:2px;">UI library powering the frontend.</span>
+          </td>
+          <td style="padding:12px 16px 12px 0;color:var(--gray-4);">MIT</td>
+          <td style="padding:12px 0;color:var(--gray-4);">© Meta Platforms, Inc.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <!-- Footer -->
 <footer>
   <div class="footer-inner">
     <p>
-      © 2025 Gaurang A. Kulkarni · Blazer Studio is an independent open-source project,
-      not affiliated with Kvell.<br/>
+      © 2025 Gaurang A. Kulkarni · Blazer Studio is an independent open-source project.<br/>
       Built with Rust, Tauri, DuckDB, and React.
     </p>
     <div class="footer-links">
