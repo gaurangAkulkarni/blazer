@@ -254,13 +254,13 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
       }
 
       const provider = settings.active_provider
-      const providerCfg = provider === 'ollama'
-        ? { api_key: '', model: settings.ollama.model, temperature: settings.ollama.temperature }
-        : settings[provider]
+      const providerCfg: { api_key: string; model: string; temperature: number; base_url?: string } =
+        provider === 'ollama'
+          ? { api_key: '', model: settings.ollama.model, temperature: settings.ollama.temperature }
+          : settings[provider]
 
       // Detect local/custom endpoint — these have small context windows and don't need token-heavy extras
-      const isLocalEndpoint = provider === 'ollama' ||
-        (provider !== 'ollama' && !!((providerCfg as any).base_url?.trim()))
+      const isLocalEndpoint = provider === 'ollama' || !!(providerCfg.base_url?.trim())
 
       // Build file context for the LLM (adapted to engine syntax)
       let fileContext = ''
@@ -489,8 +489,8 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
               stream_id: streamId,
               ...(provider === 'ollama'
                 ? { base_url: settings.ollama.base_url }
-                : (providerCfg as any).base_url
-                  ? { base_url: (providerCfg as any).base_url }
+                : providerCfg.base_url
+                  ? { base_url: providerCfg.base_url }
                   : {}),
             },
           }).catch((err) => {
