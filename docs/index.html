@@ -818,24 +818,149 @@
     <p class="section-eyebrow">Agentic Mode</p>
     <h2>Tell it your goal.<br/>It figures out the rest.</h2>
 
-    <div class="chat-demo">
-      <div class="chat-msg">
-        <div class="chat-avatar avatar-user">G</div>
-        <div class="chat-bubble bubble-user">
-          Analyse the NYC taxi dataset. I want to understand revenue trends, payment patterns, and flag any data quality issues.
+    <!-- App UI mock — plan timeline sidebar + chat -->
+    <div style="
+      margin-top:48px;
+      border:1px solid #e0e0e5;
+      border-radius:14px;
+      overflow:hidden;
+      box-shadow:0 20px 60px rgba(0,0,0,0.10);
+      display:flex;
+      background:#fff;
+      max-width:860px;
+      font-size:13px;
+    ">
+
+      <!-- ── Plan timeline sidebar (AgenticTimeline) ── -->
+      <div style="
+        width:172px;
+        flex-shrink:0;
+        border-right:1px solid #f0f0f4;
+        background:#fafafa;
+        display:flex;
+        flex-direction:column;
+        padding:0 0 16px;
+      ">
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 12px 10px;">
+          <span style="font-size:9px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#aaa;">Plan</span>
+          <span style="font-size:10px;font-weight:600;color:#22c55e;">Done</span>
+        </div>
+
+        <!-- Steps -->
+        <div style="padding:0 12px;display:flex;flex-direction:column;">
+
+          <!-- Step 1 — done -->
+          <div style="display:flex;gap:8px;">
+            <div style="display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0;">
+              <div style="width:16px;height:16px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <div style="width:1px;flex:1;min-height:10px;background:#86efac;margin:2px 0;"></div>
+            </div>
+            <div style="padding:1px 0 12px;flex:1;min-width:0;">
+              <p style="font-size:11px;line-height:1.4;color:#16a34a;margin:0;word-break:break-word;">Inspect schema &amp; file structure</p>
+            </div>
+          </div>
+
+          <!-- Step 2 — done -->
+          <div style="display:flex;gap:8px;">
+            <div style="display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0;">
+              <div style="width:16px;height:16px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <div style="width:1px;flex:1;min-height:10px;background:#86efac;margin:2px 0;"></div>
+            </div>
+            <div style="padding:1px 0 12px;flex:1;min-width:0;">
+              <p style="font-size:11px;line-height:1.4;color:#16a34a;margin:0;word-break:break-word;">Monthly revenue trend analysis</p>
+            </div>
+          </div>
+
+          <!-- Step 3 — done -->
+          <div style="display:flex;gap:8px;">
+            <div style="display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0;">
+              <div style="width:16px;height:16px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <div style="width:1px;flex:1;min-height:10px;background:#86efac;margin:2px 0;"></div>
+            </div>
+            <div style="padding:1px 0 12px;flex:1;min-width:0;">
+              <p style="font-size:11px;line-height:1.4;color:#16a34a;margin:0;word-break:break-word;">Payment type distribution</p>
+            </div>
+          </div>
+
+          <!-- Step 4 — done -->
+          <div style="display:flex;gap:8px;">
+            <div style="display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0;">
+              <div style="width:16px;height:16px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <div style="width:1px;flex:1;min-height:10px;background:#86efac;margin:2px 0;"></div>
+            </div>
+            <div style="padding:1px 0 12px;flex:1;min-width:0;">
+              <p style="font-size:11px;line-height:1.4;color:#16a34a;margin:0;word-break:break-word;">Data quality check</p>
+            </div>
+          </div>
+
+          <!-- Step 5 — final assessment (amber flag, done) -->
+          <div style="display:flex;gap:8px;">
+            <div style="display:flex;flex-direction:column;align-items:center;width:16px;flex-shrink:0;">
+              <div style="width:16px;height:16px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+            </div>
+            <div style="padding:1px 0;flex:1;min-width:0;">
+              <p style="font-size:11px;line-height:1.4;color:#16a34a;margin:0;word-break:break-word;">Synthesize findings &amp; provide final assessment</p>
+            </div>
+          </div>
+
         </div>
       </div>
-      <div class="chat-msg">
-        <div class="chat-avatar avatar-ai">AI</div>
-        <div class="chat-bubble bubble-ai">
-          <div class="plan-badge">Plan · 5 steps</div><br/>
-          1. Inspect schema &amp; file structure<br/>
-          2. Monthly revenue trend analysis<br/>
-          3. Payment type distribution<br/>
-          4. Data quality check (nulls, negatives, outliers)<br/>
-          5. Synthesize findings &amp; provide final assessment<br/><br/>
-          Starting Step 1 — running <code>DESCRIBE</code> on the parquet files…
+
+      <!-- ── Chat area ── -->
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;max-height:480px;overflow-y:auto;">
+
+        <!-- User message -->
+        <div style="padding:16px 16px 0;display:flex;gap:10px;align-items:flex-start;">
+          <div style="width:26px;height:26px;border-radius:50%;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">G</div>
+          <div style="background:#000;color:#fff;padding:10px 14px;border-radius:14px;border-bottom-left-radius:4px;font-size:13px;line-height:1.5;max-width:480px;">
+            Analyse the NYC taxi dataset. I want to understand revenue trends, payment patterns, and flag any data quality issues.
+          </div>
         </div>
+
+        <!-- AI step 3 response -->
+        <div style="padding:12px 16px 0;display:flex;gap:10px;align-items:flex-start;">
+          <div style="width:26px;height:26px;border-radius:50%;background:#f0f0f4;border:1px solid #e0e0e5;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#555;flex-shrink:0;">AI</div>
+          <div style="border:1px solid #e8e8ed;background:#fff;padding:10px 14px;border-radius:14px;border-bottom-left-radius:4px;font-size:13px;line-height:1.6;color:#333;max-width:480px;">
+            <!-- Query block -->
+            <div style="background:#f5f5f7;border:1px solid #e5e5ea;border-radius:8px;overflow:hidden;margin-bottom:10px;">
+              <div style="background:#ececf0;padding:5px 10px;font-size:10px;color:#666;display:flex;align-items:center;gap:6px;font-family:monospace;">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" style="color:#6366f1;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                duckdb query
+                <span style="background:#e0e0e8;padding:1px 6px;border-radius:4px;font-size:9px;letter-spacing:0.05em;">Q3ZP8X</span>
+                <span style="margin-left:auto;background:#16a34a;color:white;padding:1px 8px;border-radius:20px;font-size:10px;font-weight:600;">✓ Done</span>
+              </div>
+              <pre style="margin:0;padding:8px 10px;font-family:'SF Mono','Menlo',monospace;font-size:11px;color:#333;line-height:1.6;overflow-x:auto;"><span style="color:#888;">-- Payment type breakdown</span>
+SELECT payment_type,
+  count(*) AS trips,
+  round(avg(fare_amount),2) AS avg_fare
+FROM read_parquet('/data/trips/*.parquet')
+GROUP BY 1 ORDER BY 2 DESC;</pre>
+            </div>
+            <p style="margin:0;font-size:13px;color:#444;">Credit card dominates at <strong>67.4%</strong> of trips with a higher avg fare ($13.20) vs cash at <strong>21.8%</strong> ($10.90). Moving to data quality check…</p>
+          </div>
+        </div>
+
+        <!-- Final assessment -->
+        <div style="padding:12px 16px 16px;display:flex;gap:10px;align-items:flex-start;">
+          <div style="width:26px;height:26px;border-radius:50%;background:#f0f0f4;border:1px solid #e0e0e5;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#555;flex-shrink:0;">AI</div>
+          <div style="border:1px solid #e8e8ed;background:#fff;padding:10px 14px;border-radius:14px;border-bottom-left-radius:4px;font-size:13px;line-height:1.6;color:#333;max-width:480px;">
+            <p style="margin:0 0 8px;font-weight:600;color:#000;">Final Assessment</p>
+            <p style="margin:0 0 6px;color:#444;">Revenue is stable at <strong>$12.39 avg fare</strong> across 47M trips. Credit card is the dominant payment method. Data quality is high — anomalies (&lt;0.6%) are edge cases, not systematic issues.</p>
+            <p style="margin:0;color:#888;font-size:12px;">⏱ 33.6s · 5 queries · 4 steps completed</p>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
