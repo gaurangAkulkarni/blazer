@@ -789,24 +789,139 @@
     <p class="section-eyebrow">SQL Console</p>
     <h2>Write SQL, see results<br/>in milliseconds.</h2>
 
-    <div class="code-window">
-      <div class="code-titlebar">
-        <span class="traffic t-red"></span>
-        <span class="traffic t-yellow"></span>
-        <span class="traffic t-green"></span>
-        <span>DuckDB Console — nyc_trips.parquet</span>
+    <!-- Full app UI mock -->
+    <div style="margin-top:48px;border:1px solid #e0e0e5;border-radius:14px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.10);background:#fff;font-size:13px;">
+
+      <!-- macOS traffic lights + tab bar -->
+      <div style="background:#f5f5f7;border-bottom:1px solid #e5e5ea;padding:10px 14px 0;display:flex;flex-direction:column;gap:10px;">
+        <!-- Traffic lights -->
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57;display:inline-block;"></span>
+          <span style="width:12px;height:12px;border-radius:50%;background:#febc2e;display:inline-block;"></span>
+          <span style="width:12px;height:12px;border-radius:50%;background:#28c840;display:inline-block;"></span>
+          <!-- Engine toggle -->
+          <div style="margin-left:auto;display:flex;background:#e5e5ea;border-radius:6px;padding:2px;font-size:11px;font-weight:500;">
+            <span style="padding:3px 10px;border-radius:4px;color:#888;">Blazer</span>
+            <span style="padding:3px 10px;border-radius:4px;background:#fff;color:#000;box-shadow:0 1px 3px rgba(0,0,0,0.12);">DuckDB</span>
+          </div>
+        </div>
+        <!-- Tabs -->
+        <div style="display:flex;gap:0;">
+          <div style="padding:7px 14px;font-size:12px;font-weight:500;color:#888;cursor:pointer;">AI Chat</div>
+          <div style="padding:7px 14px;font-size:12px;font-weight:600;color:#000;border-bottom:2px solid #000;">Console</div>
+          <div style="padding:7px 14px;font-size:12px;font-weight:500;color:#888;">History</div>
+          <div style="padding:7px 14px;font-size:12px;font-weight:500;color:#888;">Snippets</div>
+          <div style="padding:7px 14px;font-size:12px;font-weight:500;color:#888;">Schema</div>
+        </div>
       </div>
-      <div class="code-body">
-        <span class="cmt">-- Monthly revenue trend</span><br/>
-        <span class="kw">SELECT</span><br/>
-        &nbsp;&nbsp;<span class="fn">strftime</span>(tpep_pickup_datetime, <span class="str">'%Y-%m'</span>) <span class="kw">AS</span> month,<br/>
-        &nbsp;&nbsp;<span class="fn">count</span>(*) <span class="kw">AS</span> trips,<br/>
-        &nbsp;&nbsp;<span class="fn">round</span>(<span class="fn">avg</span>(fare_amount), <span class="num">2</span>) <span class="kw">AS</span> avg_fare,<br/>
-        &nbsp;&nbsp;<span class="fn">sum</span>(fare_amount) <span class="kw">AS</span> total_revenue<br/>
-        <span class="kw">FROM</span> <span class="fn">read_parquet</span>(<span class="str">'/data/trips/*.parquet'</span>)<br/>
-        <span class="kw">GROUP BY</span> <span class="num">1</span><br/>
-        <span class="kw">ORDER BY</span> <span class="num">1</span>;<br/><br/>
-        <span class="cmt">-- ✓ 47,248,845 rows scanned in 312ms</span>
+
+      <!-- Split pane: editor left, results right -->
+      <div style="display:flex;height:380px;">
+
+        <!-- Left: SQL editor -->
+        <div style="flex:1;display:flex;flex-direction:column;border-right:1px solid #e5e5ea;min-width:0;">
+          <!-- Editor toolbar -->
+          <div style="padding:8px 12px;border-bottom:1px solid #f0f0f4;display:flex;align-items:center;gap:8px;background:#fafafa;">
+            <span style="font-size:11px;color:#888;font-weight:500;">nyc_trips.parquet</span>
+            <div style="margin-left:auto;display:flex;gap:6px;">
+              <button style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid #e0e0e5;background:#fff;color:#555;cursor:pointer;">Save snippet</button>
+              <button style="font-size:11px;padding:3px 12px;border-radius:6px;border:none;background:#000;color:#fff;cursor:pointer;font-weight:500;display:flex;align-items:center;gap:5px;">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Run
+              </button>
+            </div>
+          </div>
+          <!-- Code -->
+          <div style="flex:1;overflow:auto;padding:16px;background:#fff;">
+            <pre style="margin:0;font-family:'SF Mono','Menlo','Courier New',monospace;font-size:12px;line-height:1.8;color:#333;"><span style="color:#888;font-style:italic;">-- Monthly revenue by year/month</span>
+<span style="color:#cf222e;">SELECT</span>
+  <span style="color:#0550ae;">year</span>(tpep_pickup_datetime) <span style="color:#cf222e;">AS</span> year,
+  <span style="color:#0550ae;">month</span>(tpep_pickup_datetime) <span style="color:#cf222e;">AS</span> month,
+  <span style="color:#0550ae;">count</span>(*) <span style="color:#cf222e;">AS</span> total_trips,
+  <span style="color:#0550ae;">round</span>(<span style="color:#0550ae;">avg</span>(fare_amount), <span style="color:#116329;">2</span>) <span style="color:#cf222e;">AS</span> avg_fare,
+  <span style="color:#0550ae;">sum</span>(fare_amount) <span style="color:#cf222e;">AS</span> total_revenue
+<span style="color:#cf222e;">FROM</span> <span style="color:#0550ae;">read_parquet</span>(<span style="color:#0a3069;">'/data/trips/*.parquet'</span>)
+<span style="color:#cf222e;">GROUP BY</span> <span style="color:#116329;">1</span>, <span style="color:#116329;">2</span>
+<span style="color:#cf222e;">ORDER BY</span> <span style="color:#116329;">1</span>, <span style="color:#116329;">2</span>;</pre>
+          </div>
+          <!-- Status bar -->
+          <div style="padding:5px 12px;border-top:1px solid #f0f0f4;background:#fafafa;display:flex;align-items:center;gap:12px;font-size:10px;color:#aaa;">
+            <span style="color:#22c55e;font-weight:600;">✓ 312ms</span>
+            <span>47,248,845 rows scanned</span>
+            <span style="margin-left:auto;">DuckDB 1.1.0</span>
+          </div>
+        </div>
+
+        <!-- Right: Results pane -->
+        <div style="width:52%;display:flex;flex-direction:column;min-width:0;">
+          <!-- Results header -->
+          <div style="padding:8px 12px;border-bottom:1px solid #f0f0f4;background:#fafafa;display:flex;align-items:center;gap:8px;">
+            <span style="font-size:11px;font-weight:600;color:#000;">RESULTS</span>
+            <span style="font-size:10px;color:#888;background:#e5e5ea;padding:1px 7px;border-radius:20px;">7 rows</span>
+            <div style="margin-left:auto;display:flex;gap:6px;">
+              <button style="font-size:10px;padding:2px 8px;border-radius:5px;border:1px solid #e0e0e5;background:#fff;color:#555;cursor:pointer;">Chart</button>
+              <button style="font-size:10px;padding:2px 8px;border-radius:5px;border:1px solid #e0e0e5;background:#fff;color:#555;cursor:pointer;">CSV</button>
+            </div>
+          </div>
+          <!-- Table -->
+          <div style="flex:1;overflow:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+              <thead>
+                <tr style="background:#f5f5f7;position:sticky;top:0;">
+                  <th style="padding:7px 10px;text-align:right;color:#888;font-weight:600;border-bottom:1px solid #e5e5ea;font-size:10px;">#</th>
+                  <th style="padding:7px 10px;text-align:left;color:#555;font-weight:600;border-bottom:1px solid #e5e5ea;white-space:nowrap;">year</th>
+                  <th style="padding:7px 10px;text-align:left;color:#555;font-weight:600;border-bottom:1px solid #e5e5ea;white-space:nowrap;">month</th>
+                  <th style="padding:7px 10px;text-align:right;color:#555;font-weight:600;border-bottom:1px solid #e5e5ea;white-space:nowrap;">total_trips</th>
+                  <th style="padding:7px 10px;text-align:right;color:#555;font-weight:600;border-bottom:1px solid #e5e5ea;white-space:nowrap;">avg_fare</th>
+                  <th style="padding:7px 10px;text-align:right;color:#555;font-weight:600;border-bottom:1px solid #e5e5ea;white-space:nowrap;">total_revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="background:#f0f4ff;">
+                  <td style="padding:6px 10px;color:#bbb;text-align:right;border-bottom:1px solid #f0f0f4;">0</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;">2015</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;">1</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">12,748,986</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">11.91</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">151,785,085</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 10px;color:#bbb;text-align:right;border-bottom:1px solid #f0f0f4;">1</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;">2016</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;">1</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">10,906,858</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">12.49</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">136,193,166</td>
+                </tr>
+                <tr style="background:#fafafa;">
+                  <td style="padding:6px 10px;color:#bbb;text-align:right;border-bottom:1px solid #f0f0f4;">2</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;">2016</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;">2</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">11,382,049</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">12.41</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">141,298,281</td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 10px;color:#bbb;text-align:right;border-bottom:1px solid #f0f0f4;">3</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;">2016</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;">3</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">12,210,952</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">12.80</td>
+                  <td style="padding:6px 10px;border-bottom:1px solid #f0f0f4;color:#333;text-align:right;font-family:monospace;">156,240,088</td>
+                </tr>
+                <tr style="background:#fafafa;">
+                  <td style="padding:6px 10px;color:#bbb;text-align:right;">4</td>
+                  <td style="padding:6px 10px;color:#333;">2016</td>
+                  <td style="padding:6px 10px;color:#333;">4</td>
+                  <td style="padding:6px 10px;color:#333;text-align:right;font-family:monospace;">11,916,765</td>
+                  <td style="padding:6px 10px;color:#333;text-align:right;font-family:monospace;">12.65</td>
+                  <td style="padding:6px 10px;color:#333;text-align:right;font-family:monospace;">150,746,877</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
