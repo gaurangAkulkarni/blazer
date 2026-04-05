@@ -1249,78 +1249,63 @@ GROUP BY 1 ORDER BY 2 DESC;</pre>
 })()
 
 // ── Hero matrix rain — white chars on black, glowing white head ───────────
-(function() {
-  const canvas = document.getElementById('hero-matrix')
-  const section = canvas.parentElement
-  const ctx = canvas.getContext('2d')
+window.addEventListener('DOMContentLoaded', function() {
+  var hcanvas = document.getElementById('hero-matrix')
+  if (!hcanvas) return
+  var hctx = hcanvas.getContext('2d')
+  var HCHARS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFZ><|/'
+  var HCOL = 18, HFS = 14
+  var hcols, hrows, hdrops, hbright
 
-  const CHARS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFZ><|/'
-  const COL_W = 18
-  const FONT_SIZE = 14
-
-  let cols, rows, drops, brightness
-
-  function resize() {
-    canvas.width  = section.offsetWidth
-    canvas.height = section.offsetHeight
-    cols = Math.floor(canvas.width  / COL_W)
-    rows = Math.ceil(canvas.height  / FONT_SIZE) + 4
-    drops      = Array.from({ length: cols }, () => Math.random() * -(rows * 0.8))
-    brightness = Array.from({ length: cols }, () => new Float32Array(rows).fill(0))
+  function hsizeCanvas() {
+    hcanvas.width  = window.innerWidth
+    hcanvas.height = window.innerHeight
+    hcols = Math.floor(hcanvas.width  / HCOL)
+    hrows = Math.ceil(hcanvas.height  / HFS) + 4
+    hdrops  = []
+    hbright = []
+    for (var i = 0; i < hcols; i++) {
+      hdrops.push(Math.random() * -(hrows * 0.8))
+      hbright.push(new Float32Array(hrows))
+    }
   }
-  resize()
-  window.addEventListener('resize', resize)
 
-  function draw() {
-    // Clear transparent — background colour comes from the .hero CSS
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.font = `${FONT_SIZE}px "SF Mono","Menlo","Courier New",monospace`
-
-    for (let c = 0; c < cols; c++) {
-      drops[c] += 0.38
-      const head = Math.floor(drops[c])
-
-      if (head >= 0 && head < rows) brightness[c][head] = 1.0
-
-      // Reset when column exits bottom
-      if (head > rows + 4) {
-        drops[c] = -Math.floor(Math.random() * rows * 0.5)
-        brightness[c].fill(0)
+  function hdraw() {
+    hctx.clearRect(0, 0, hcanvas.width, hcanvas.height)
+    hctx.font = HFS + 'px "SF Mono","Menlo","Courier New",monospace'
+    for (var c = 0; c < hcols; c++) {
+      hdrops[c] += 0.38
+      var head = Math.floor(hdrops[c])
+      if (head >= 0 && head < hrows) hbright[c][head] = 1.0
+      if (head > hrows + 4) {
+        hdrops[c] = -Math.floor(Math.random() * hrows * 0.5)
+        for (var x = 0; x < hrows; x++) hbright[c][x] = 0
       }
-
-      for (let r = 0; r < rows; r++) {
-        const b = brightness[c][r]
+      for (var r = 0; r < hrows; r++) {
+        var b = hbright[c][r]
         if (b < 0.015) continue
-
-        const x = c * COL_W
-        const y = r * FONT_SIZE
-        const isHead = r === head
-
+        var isHead = r === head
         if (isHead) {
-          // Bright white head with a subtle glow
-          ctx.shadowBlur  = 10
-          ctx.shadowColor = 'rgba(255,255,255,0.9)'
-          ctx.fillStyle   = 'rgba(255,255,255,0.95)'
+          hctx.shadowBlur = 10
+          hctx.shadowColor = 'rgba(255,255,255,0.9)'
+          hctx.fillStyle = 'rgba(255,255,255,0.95)'
         } else {
-          ctx.shadowBlur  = 0
-          ctx.shadowColor = 'transparent'
-          // Trail: fades from bright white → mid-white → dim
-          const alpha = Math.min(b * 0.75, 0.72)
-          ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(3)})`
+          hctx.shadowBlur = 0
+          hctx.shadowColor = 'transparent'
+          hctx.fillStyle = 'rgba(255,255,255,' + Math.min(b * 0.75, 0.72).toFixed(3) + ')'
         }
-
-        ctx.fillText(CHARS[Math.floor(Math.random() * CHARS.length)], x, y)
-
-        // Decay — head stays bright, trail falls off quickly
-        brightness[c][r] *= isHead ? 0.94 : 0.76
-        if (brightness[c][r] < 0.01) brightness[c][r] = 0
+        hctx.fillText(HCHARS[Math.floor(Math.random() * HCHARS.length)], c * HCOL, r * HFS)
+        hbright[c][r] *= isHead ? 0.94 : 0.76
+        if (hbright[c][r] < 0.01) hbright[c][r] = 0
       }
     }
-    ctx.shadowBlur = 0
+    hctx.shadowBlur = 0
   }
 
-  setInterval(draw, 48)
-})()
+  hsizeCanvas()
+  setInterval(hdraw, 48)
+  window.addEventListener('resize', hsizeCanvas)
+})
 </script>
 
 </body>
