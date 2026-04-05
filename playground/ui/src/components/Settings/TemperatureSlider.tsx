@@ -8,7 +8,7 @@ interface Props {
 export function TemperatureSlider({ value, onChange }: Props) {
   return (
     <div>
-      <div className="flex justify-between text-xs text-gray-500 mb-1">
+      <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
         <span>Temperature</span>
         <span className="tabular-nums font-mono">{value.toFixed(1)}</span>
       </div>

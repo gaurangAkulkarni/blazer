@@ -20,9 +20,145 @@ html, body, #root {
 ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 
+/* Data tables — always show horizontal scrollbar so user knows content is wider */
+.data-table-scroll {
+  overflow-x: scroll;
+  overflow-y: visible;
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+.data-table-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.data-table-scroll::-webkit-scrollbar-track { background: #f9fafb; }
+.data-table-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+.data-table-scroll::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+.data-table-scroll::-webkit-scrollbar-corner { background: #f9fafb; }
+
+/* Vertical-only scroll (chat inline table) */
+.data-table-vscroll {
+  overflow-y: scroll;
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+.data-table-vscroll::-webkit-scrollbar { width: 6px; }
+.data-table-vscroll::-webkit-scrollbar-track { background: transparent; }
+.data-table-vscroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+.data-table-vscroll::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
 /* Prose overrides for markdown */
 .prose pre { margin: 0 !important; background: transparent !important; }
 .prose code { font-size: 0.8em; }
 .prose p { margin-top: 0.4em; margin-bottom: 0.4em; }
 .prose ul { margin-top: 0.4em; margin-bottom: 0.4em; }
 .prose li { margin-top: 0.15em; margin-bottom: 0.15em; }
+
+/* ── Chat message typography ──────────────────────────────────────────────────
+   Matches Claude.ai's feel: DM Sans (free Söhne equivalent) at 15 px with
+   open leading and slight negative tracking.  Scoped to .chat-prose so it
+   never leaks into the console, result pane, or toolbar areas.
+   ────────────────────────────────────────────────────────────────────────── */
+.chat-prose {
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  line-height: 1.65;
+  letter-spacing: -0.010em;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Headings inside chat stay DM Sans but heavier */
+.chat-prose h1,
+.chat-prose h2,
+.chat-prose h3,
+.chat-prose h4 {
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* Keep code / pre / kbd strictly monospaced — never apply DM Sans there.
+   Use a fixed px size so query blocks don't scale when prose font changes. */
+.chat-prose code,
+.chat-prose pre,
+.chat-prose kbd {
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace !important;
+  letter-spacing: 0;
+  font-size: 12px;
+}
+
+/* ── Dark mode scrollbars ─────────────────────────────────────────────────── */
+.dark ::-webkit-scrollbar-thumb { background: #374151; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+.dark .data-table-scroll {
+  scrollbar-color: #374151 transparent;
+}
+.dark .data-table-scroll::-webkit-scrollbar-track { background: #111827; }
+.dark .data-table-scroll::-webkit-scrollbar-thumb { background: #374151; }
+.dark .data-table-scroll::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+.dark .data-table-scroll::-webkit-scrollbar-corner { background: #111827; }
+
+.dark .data-table-vscroll { scrollbar-color: #374151 transparent; }
+.dark .data-table-vscroll::-webkit-scrollbar-thumb { background: #374151; }
+.dark .data-table-vscroll::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+/* ── CodeMirror dark overrides ────────────────────────────────────────────── */
+/* Background / surface */
+.dark .cm-editor                         { background-color: #111827 !important; }
+.dark .cm-scroller                       { background-color: #111827 !important; }
+.dark .cm-content                        { caret-color: #e5e7eb !important; color: #e5e7eb; }
+.dark .cm-line                           { color: #e5e7eb; }
+
+/* Gutter */
+.dark .cm-gutters {
+  background-color: #1f2937 !important;
+  color: #4b5563 !important;
+  border-right-color: #374151 !important;
+}
+.dark .cm-activeLineGutter               { background-color: #1e2d3d !important; color: #6b7280 !important; }
+
+/* Active line / selection */
+.dark .cm-activeLine                     { background-color: #1a2535 !important; }
+.dark .cm-selectionBackground,
+.dark .cm-focused .cm-selectionBackground { background-color: #1e3a5f !important; }
+.dark ::selection                        { background-color: #1e3a5f !important; }
+
+/* Cursor */
+.dark .cm-cursor,
+.dark .cm-dropCursor                     { border-left-color: #d1d5db !important; }
+
+/* Bracket matching */
+.dark .cm-matchingBracket                { background-color: #312e81 !important; color: #a5b4fc !important; }
+.dark .cm-nonmatchingBracket             { background-color: #7f1d1d !important; }
+
+/* Placeholder */
+.dark .cm-placeholder                    { color: #4b5563 !important; }
+
+/* Search */
+.dark .cm-searchMatch                    { background-color: #78350f !important; }
+.dark .cm-searchMatch-selected           { background-color: #92400e !important; }
+
+/* Autocomplete tooltip */
+.dark .cm-tooltip {
+  background-color: #1f2937 !important;
+  border-color: #374151 !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.40) !important;
+}
+.dark .cm-tooltip-autocomplete > ul > li { color: #d1d5db !important; }
+.dark .cm-tooltip-autocomplete > ul > li[aria-selected="true"] {
+  background-color: #1e3a5f !important;
+  color: #93c5fd !important;
+}
+
+/* Syntax token overrides (lezer-generated class names via HighlightStyle) */
+.dark .cm-editor .tok-keyword            { color: #818cf8 !important; }   /* indigo-400 */
+.dark .cm-editor .tok-string            { color: #38bdf8 !important; }   /* sky-400 */
+.dark .cm-editor .tok-comment           { color: #4b5563 !important; }   /* gray-600 */
+.dark .cm-editor .tok-number            { color: #fbbf24 !important; }   /* amber-400 */
+.dark .cm-editor .tok-bool              { color: #818cf8 !important; }
+.dark .cm-editor .tok-null              { color: #4b5563 !important; }
+.dark .cm-editor .tok-operator          { color: #9ca3af !important; }
+.dark .cm-editor .tok-punctuation       { color: #6b7280 !important; }
+.dark .cm-editor .tok-function          { color: #a78bfa !important; }   /* violet-400 */
+.dark .cm-editor .tok-typeName          { color: #2dd4bf !important; }   /* teal-400 */
+.dark .cm-editor .tok-propertyName     { color: #60a5fa !important; }   /* blue-400 */
+.dark .cm-editor .tok-variableName     { color: #e5e7eb !important; }

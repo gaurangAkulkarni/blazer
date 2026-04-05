@@ -23,7 +23,7 @@ export function DataFrameTable({ data, columns, shape, durationMs }: Props) {
           <span className="text-gray-400 ml-auto">{durationMs}ms</span>
         )}
       </div>
-      <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-[420px] overflow-y-auto">
+      <div className="data-table-scroll data-table-vscroll rounded-lg border border-gray-200 max-h-[420px]">
         <table className="min-w-full text-xs">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50">
@@ -44,7 +44,13 @@ export function DataFrameTable({ data, columns, shape, durationMs }: Props) {
                   const isNum = typeof val === 'number'
                   return (
                     <td key={col} className={`px-3 py-1.5 border-b border-gray-100 whitespace-nowrap ${isNum ? 'text-right tabular-nums text-gray-800' : 'text-gray-700'} ${val === null ? 'text-gray-300 italic' : ''}`}>
-                      {val === null ? 'null' : isNum ? (Number.isInteger(val) ? val : (val as number).toFixed(4)) : String(val)}
+                      {val === null
+                        ? 'null'
+                        : isNum
+                          ? Number.isInteger(val)
+                            ? (val as number).toString()
+                            : (val as number).toLocaleString('en-US', { maximumFractionDigits: 4 })
+                          : String(val)}
                     </td>
                   )
                 })}
