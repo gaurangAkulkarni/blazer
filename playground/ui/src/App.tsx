@@ -103,7 +103,7 @@ export default function App() {
     setConsoleEngineState(e); persist('blazer_console_engine', e)
   }, [])
 
-  const { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, loadedFiles, replaceFile, removeFile } = useChat(settings, chatEngine)
+  const { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, loadedFiles, replaceFile, removeFile } = useChat(settings, chatEngine)
 
   const [activeConnections, setActiveConnections] = useState<ConnectionAlias[]>([])
 
@@ -364,6 +364,8 @@ export default function App() {
         return
       }
 
+      // Strip the trailing DONE token from the displayed message
+      patchLastMessage(beforeDone)
       setAgenticCurrentStep(agenticPlanStepsRef.current.length)
       agenticCurrentStepRef.current = agenticPlanStepsRef.current.length
       stopAgenticLoop()

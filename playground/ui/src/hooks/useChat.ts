@@ -538,6 +538,18 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
 
   const clearMessages = useCallback(() => setMessages([]), [])
 
+  /** Overwrite the content of the last assistant message (used to strip DONE token). */
+  const patchLastMessage = useCallback((content: string) => {
+    setMessages((prev) => {
+      const updated = [...prev]
+      const last = updated[updated.length - 1]
+      if (last?.role === 'assistant') {
+        updated[updated.length - 1] = { ...last, content }
+      }
+      return updated
+    })
+  }, [])
+
   const stopStream = useCallback(() => {
     if (stopStreamRef.current) {
       stopStreamRef.current()
@@ -545,6 +557,6 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
     }
   }, [])
 
-  return { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, loadedFiles, addFiles, replaceFile, removeFile }
+  return { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, loadedFiles, addFiles, replaceFile, removeFile }
 }
 
