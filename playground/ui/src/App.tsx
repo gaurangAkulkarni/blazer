@@ -370,14 +370,29 @@ export default function App() {
       return
     }
 
-    // ── Auto-stop at final step with substantial content ──────────────────────
-    // If the LLM forgot to write DONE but delivered a full final-step response,
-    // stop gracefully rather than looping forever.
+    // ── Auto-stop: final step OR comprehensive final-report detected ─────────
+    // Stops the loop if:
+    //   A) We are at/past the final plan step and the response has substantial
+    //      prose (no SQL) — the LLM just forgot to write DONE.
+    //   B) The LLM jumped ahead and delivered a complete final-assessment
+    //      response at any step. Detected by: long prose + section headings +
+    //      final-report language ("Final", "Assessment", "Report", "Summary",
+    //      "Recommendations") — regardless of current step index.
     if (agenticActiveRef.current) {
-      const atFinalStep = agenticCurrentStepRef.current >= agenticPlanStepsRef.current.length - 1
-      const hasSubstantialContent = lastMsg.content.trim().length > 400
       const hasSql = /```sql/i.test(lastMsg.content)
-      if (atFinalStep && hasSubstantialContent && !hasSql) {
+      const content = lastMsg.content.trim()
+      const atFinalStep = agenticCurrentStepRef.current >= agenticPlanStepsRef.current.length - 1
+
+      // Heuristic: does this look like a full final-assessment report?
+      const isFinalReport =
+        !hasSql &&
+        content.length > 600 &&
+        // has numbered or ## section headings
+        (/^#{1,3}\s/m.test(content) || /^\d+\.\s+\*{0,2}[A-Z]/m.test(content)) &&
+        // contains final-report language
+        /\b(final|comprehensive|summary|assessment|report|recommendation|conclusion|findings)\b/i.test(content)
+
+      if (!hasSql && (atFinalStep || isFinalReport)) {
         setAgenticCurrentStep(agenticPlanStepsRef.current.length)
         agenticCurrentStepRef.current = agenticPlanStepsRef.current.length
         stopAgenticLoop()
