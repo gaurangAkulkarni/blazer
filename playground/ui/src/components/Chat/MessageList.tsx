@@ -19,36 +19,56 @@ interface Props {
   agenticCurrentStep?: number
   agenticPlanSteps?: string[]
   agenticStepError?: boolean
-  /** Called with the runId when an agentic-plan message scrolls into view */
-  onRunVisible?: (runId: string) => void
+  /** Called with the runId of the bottommost visible message (null = non-agentic) */
+  onRunVisible?: (runId: string | null) => void
 }
 
 export function MessageList({ messages, isStreaming, onQueryResult, onSend, onAppendToChat, autoRun, onSaveSnippet, snippetGroups, agenticMode, agenticActive, agenticCurrentStep, agenticPlanSteps, agenticStepError, onRunVisible }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
+  // Tracks which elements are currently intersecting and their runIds
+  const intersectingRef = useRef<Map<Element, string | null>>(new Map())
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, isStreaming])
 
-  // IntersectionObserver: call onRunVisible when an agentic plan message enters the viewport
+  // IntersectionObserver: observe every message; emit the runId of the
+  // bottommost visible one (null when a non-agentic message is bottommost).
   useEffect(() => {
     if (!onRunVisible) return
     observerRef.current?.disconnect()
+    intersectingRef.current.clear()
+
     observerRef.current = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
+          const runId = ((entry.target as HTMLElement).dataset.msgRunId) || null
           if (entry.isIntersecting) {
-            const runId = (entry.target as HTMLElement).dataset.runId
-            if (runId) onRunVisible(runId)
+            intersectingRef.current.set(entry.target, runId)
+          } else {
+            intersectingRef.current.delete(entry.target)
           }
         }
+        // Pick the bottommost (highest top value) visible message
+        let bestTop = -Infinity
+        let bestRunId: string | null = null
+        intersectingRef.current.forEach((runId, el) => {
+          const top = el.getBoundingClientRect().top
+          if (top > bestTop) {
+            bestTop = top
+            bestRunId = runId
+          }
+        })
+        onRunVisible(bestRunId)
       },
-      { root: null, threshold: 0.2 },
+      { root: null, threshold: 0.1 },
     )
-    // Observe all currently rendered plan-start elements
-    document.querySelectorAll('[data-run-id]').forEach((el) => observerRef.current?.observe(el))
-    return () => observerRef.current?.disconnect()
+    document.querySelectorAll('[data-msg-run-id]').forEach((el) => observerRef.current?.observe(el))
+    return () => {
+      observerRef.current?.disconnect()
+      intersectingRef.current.clear()
+    }
   }, [messages, onRunVisible])
 
   const lastMsg = messages[messages.length - 1]
@@ -76,9 +96,8 @@ export function MessageList({ messages, isStreaming, onQueryResult, onSend, onAp
         if (msg.role === 'assistant' && !msg.content.trim()) return null
         // Hide internal agentic loop continuation messages from the chat UI
         if (msg.agenticContinuation) return null
-        const isRunStart = (msg.agenticPlanSteps?.length ?? 0) > 0 && msg.agenticRunId
         return (
-          <div key={msg.id} data-run-id={isRunStart ? msg.agenticRunId : undefined}>
+          <div key={msg.id} data-msg-run-id={msg.agenticRunId ?? ''}>
             <MessageBubble
               message={msg}
               onQueryResult={onQueryResult}

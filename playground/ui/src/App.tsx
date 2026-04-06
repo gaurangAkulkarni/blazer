@@ -212,25 +212,13 @@ export default function App() {
     if (agenticActive && agenticPlanSteps.length > 0) {
       return { steps: agenticPlanSteps, currentStep: agenticCurrentStep, isHistorical: false, runId: agenticRunIdRef.current }
     }
-    // Only show historical plans while agentic mode is still on
-    if (!agenticMode) return null
-    // If the most recent message isn't part of an agentic run, the current
-    // exchange is plain — leave the panel blank.
-    const lastMsg = messages[messages.length - 1]
-    if (lastMsg && !lastMsg.agenticRunId) return null
-    const runId = visibleRunId
-    if (runId) {
-      const planMsg = messages.find((m) => m.agenticRunId === runId && (m.agenticPlanSteps?.length ?? 0) > 0)
-      if (planMsg?.agenticPlanSteps?.length) {
-        return { steps: planMsg.agenticPlanSteps, currentStep: planMsg.agenticPlanSteps.length, isHistorical: true, runId }
-      }
-    }
-    // Fallback: most recent completed run in message history
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]
-      if ((m.agenticPlanSteps?.length ?? 0) > 0) {
-        return { steps: m.agenticPlanSteps!, currentStep: m.agenticPlanSteps!.length, isHistorical: true, runId: m.agenticRunId ?? '' }
-      }
+    // Panel only populates when agentic mode is on AND a specific agentic run
+    // is visible in the viewport (visibleRunId is a non-empty string).
+    // null visibleRunId = non-agentic message is bottommost → blank panel.
+    if (!agenticMode || !visibleRunId) return null
+    const planMsg = messages.find((m) => m.agenticRunId === visibleRunId && (m.agenticPlanSteps?.length ?? 0) > 0)
+    if (planMsg?.agenticPlanSteps?.length) {
+      return { steps: planMsg.agenticPlanSteps, currentStep: planMsg.agenticPlanSteps.length, isHistorical: true, runId: visibleRunId }
     }
     return null
   }, [agenticActive, agenticMode, agenticPlanSteps, agenticCurrentStep, visibleRunId, messages])
@@ -835,7 +823,8 @@ export default function App() {
 
             {/* Chat body: optional agentic timeline + messages/input */}
             <div className="flex flex-1 min-h-0">
-              {displayedPlan && !planPanelVisible && (
+              {/* Plan panel — always mounted when agentic mode is on */}
+              {agenticMode && !planPanelVisible && (
                 /* Collapsed rail — click to expand */
                 <button
                   onClick={() => setPlanPanelVisible(true)}
@@ -850,17 +839,40 @@ export default function App() {
                   </span>
                 </button>
               )}
-              {displayedPlan && planPanelVisible && (
-                <AgenticTimeline
-                  steps={displayedPlan.steps}
-                  currentStep={displayedPlan.currentStep}
-                  active={agenticActive && !displayedPlan.isHistorical}
-                  stepError={agenticStepError}
-                  iteration={agenticIteration}
-                  maxIterations={MAX_AGENTIC_ITER}
-                  isHistorical={displayedPlan.isHistorical}
-                  onHide={() => setPlanPanelVisible(false)}
-                />
+              {agenticMode && planPanelVisible && (
+                displayedPlan ? (
+                  <AgenticTimeline
+                    steps={displayedPlan.steps}
+                    currentStep={displayedPlan.currentStep}
+                    active={agenticActive && !displayedPlan.isHistorical}
+                    stepError={agenticStepError}
+                    iteration={agenticIteration}
+                    maxIterations={MAX_AGENTIC_ITER}
+                    isHistorical={displayedPlan.isHistorical}
+                    onHide={() => setPlanPanelVisible(false)}
+                  />
+                ) : (
+                  /* Blank panel — agentic mode on but no agentic run visible */
+                  <div className="shrink-0 flex flex-col w-[168px] border-r border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/60">
+                    <div className="shrink-0 flex items-center justify-between px-3 pt-3 pb-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Plan</span>
+                      <button
+                        onClick={() => setPlanPanelVisible(false)}
+                        title="Collapse plan panel"
+                        className="p-0.5 rounded text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="15 18 9 12 15 6"/>
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="flex-1 flex items-center justify-center px-3 pb-4">
+                      <p className="text-[10px] text-center text-gray-300 dark:text-gray-700 leading-relaxed select-none">
+                        Scroll to an agentic run to see its plan
+                      </p>
+                    </div>
+                  </div>
+                )
               )}
               <div className="flex flex-col flex-1 min-h-0 min-w-0">
                 <MessageList
