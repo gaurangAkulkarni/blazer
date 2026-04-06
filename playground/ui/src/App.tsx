@@ -214,6 +214,10 @@ export default function App() {
     }
     // Only show historical plans while agentic mode is still on
     if (!agenticMode) return null
+    // If the most recent message isn't part of an agentic run, the current
+    // exchange is plain — leave the panel blank.
+    const lastMsg = messages[messages.length - 1]
+    if (lastMsg && !lastMsg.agenticRunId) return null
     const runId = visibleRunId
     if (runId) {
       const planMsg = messages.find((m) => m.agenticRunId === runId && (m.agenticPlanSteps?.length ?? 0) > 0)
