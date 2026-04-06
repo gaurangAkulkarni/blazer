@@ -853,15 +853,6 @@ export default function App() {
                   maxIterations={MAX_AGENTIC_ITER}
                   isHistorical={displayedPlan.isHistorical}
                   onHide={() => setPlanPanelVisible(false)}
-                  onClear={() => {
-                    stopAgenticLoop()
-                    setAgenticPlanSteps([])
-                    agenticPlanStepsRef.current = []
-                    setAgenticCurrentStep(0)
-                    agenticCurrentStepRef.current = 0
-                    setVisibleRunId(null)
-                    setPlanPanelVisible(true)
-                  }}
                 />
               )}
               <div className="flex flex-col flex-1 min-h-0 min-w-0">

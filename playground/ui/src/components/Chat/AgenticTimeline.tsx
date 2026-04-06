@@ -7,13 +7,12 @@ interface Props {
   stepError: boolean
   iteration: number
   maxIterations: number
-  onClear?: () => void
   onHide?: () => void
   isHistorical?: boolean
 }
 
 
-export function AgenticTimeline({ steps, currentStep, active, stepError, iteration, maxIterations, onClear, onHide, isHistorical }: Props) {
+export function AgenticTimeline({ steps, currentStep, active, stepError, iteration, maxIterations, onHide, isHistorical }: Props) {
   if (steps.length === 0) return null
 
   // Consider all done if either the loop stopped OR the step pointer is past the end
@@ -50,18 +49,6 @@ export function AgenticTimeline({ steps, currentStep, active, stepError, iterati
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 18 9 12 15 6"/>
-              </svg>
-            </button>
-          )}
-          {/* Clear button — always visible so user can dismiss at any point */}
-          {onClear && (
-            <button
-              onClick={onClear}
-              title="Clear plan"
-              className="p-0.5 rounded text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
             </button>
           )}
