@@ -103,7 +103,7 @@ export default function App() {
     setConsoleEngineState(e); persist('blazer_console_engine', e)
   }, [])
 
-  const { messages, sendMessage, isStreaming, addQueryResult, clearMessages, loadedFiles, replaceFile, removeFile } = useChat(settings, chatEngine)
+  const { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, loadedFiles, replaceFile, removeFile } = useChat(settings, chatEngine)
 
   const [activeConnections, setActiveConnections] = useState<ConnectionAlias[]>([])
 
@@ -840,6 +840,8 @@ export default function App() {
                   activeConnections={activeConnections}
                   onAddConnection={addConnection}
                   onRemoveConnection={removeConnection}
+                  isStreaming={isStreaming}
+                  onStop={() => { stopStream(); stopAgenticLoop() }}
                 />
               </div>
             </div>

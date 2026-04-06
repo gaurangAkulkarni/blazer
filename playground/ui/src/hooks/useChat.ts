@@ -218,6 +218,8 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
     })
   }, [])
   const streamingRef = useRef('')
+  // Holds the cleanup fn for the active stream — called by stopStream()
+  const stopStreamRef = useRef<(() => void) | null>(null)
 
   const addFiles = useCallback((files: AttachedFile[]) => {
     setLoadedFiles((prev) => {
@@ -416,7 +418,11 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
           const cleanup = () => {
             unlistenChunk?.()
             unlistenEnd?.()
+            stopStreamRef.current = null
           }
+
+          // Allow external callers (Stop button) to cancel this stream
+          stopStreamRef.current = () => { cleanup(); resolve() }
 
           listen<{ stream_id: string; chunk: string }>('llm-chunk', (event) => {
             if (event.payload.stream_id !== streamId) return
@@ -532,6 +538,13 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
 
   const clearMessages = useCallback(() => setMessages([]), [])
 
-  return { messages, sendMessage, isStreaming, addQueryResult, clearMessages, loadedFiles, addFiles, replaceFile, removeFile }
+  const stopStream = useCallback(() => {
+    if (stopStreamRef.current) {
+      stopStreamRef.current()
+      setIsStreaming(false)
+    }
+  }, [])
+
+  return { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, loadedFiles, addFiles, replaceFile, removeFile }
 }
 

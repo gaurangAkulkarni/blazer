@@ -28,9 +28,13 @@ interface Props {
   activeConnections?: ConnectionAlias[]
   onAddConnection?: (conn: ConnectionAlias) => void
   onRemoveConnection?: (id: string) => void
+  /** Called when user clicks the Stop button mid-stream */
+  onStop?: () => void
+  /** True while the LLM is streaming — shows Stop button instead of Send */
+  isStreaming?: boolean
 }
 
-export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile, onReplaceFile, prefill, onPrefillConsumed, availableSkills = [], availableConnections = [], activeConnections = [], onAddConnection, onRemoveConnection }: Props) {
+export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile, onReplaceFile, prefill, onPrefillConsumed, availableSkills = [], availableConnections = [], activeConnections = [], onAddConnection, onRemoveConnection, onStop, isStreaming = false }: Props) {
   const [input, setInput] = useState('')
   const [pendingFiles, setPendingFiles] = useState<AttachedFile[]>([])
   const [converting, setConverting] = useState<Set<string>>(new Set())
@@ -471,13 +475,26 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
             <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
           </svg>
         </button>
-        <button
-          onClick={handleSubmit}
-          disabled={disabled || (!input.trim() && pendingFiles.length === 0)}
-          className="px-4 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl text-sm font-medium hover:bg-gray-700 dark:hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition shrink-0"
-        >
-          Send
-        </button>
+        {isStreaming ? (
+          <button
+            onClick={onStop}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition shrink-0"
+            title="Stop generating"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+            </svg>
+            Stop
+          </button>
+        ) : (
+          <button
+            onClick={handleSubmit}
+            disabled={disabled || (!input.trim() && pendingFiles.length === 0)}
+            className="px-4 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl text-sm font-medium hover:bg-gray-700 dark:hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition shrink-0"
+          >
+            Send
+          </button>
+        )}
       </div>
     </div>
 
