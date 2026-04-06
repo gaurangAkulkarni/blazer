@@ -156,6 +156,7 @@ export default function App() {
   const [agenticStepError, setAgenticStepError] = useState(false)
   const [agenticIteration, setAgenticIteration] = useState(0)
   const [visibleRunId, setVisibleRunId] = useState<string | null>(null)
+  const [planPanelVisible, setPlanPanelVisible] = useState(true)
 
   // Refs — stable values accessible inside callbacks without stale closures
   const agenticActiveRef = useRef(false)
@@ -496,6 +497,7 @@ export default function App() {
         agenticCurrentStepRef.current = 0
         agenticPlanStepsRef.current = []
         setAgenticActive(true)
+        setPlanPanelVisible(true)   // auto-show panel when a new run starts
         setAgenticCurrentStep(0)
         setAgenticPlanSteps([])
         setAgenticStepError(false)
@@ -826,7 +828,22 @@ export default function App() {
 
             {/* Chat body: optional agentic timeline + messages/input */}
             <div className="flex flex-1 min-h-0">
-              {displayedPlan && (
+              {displayedPlan && !planPanelVisible && (
+                /* Collapsed rail — click to expand */
+                <button
+                  onClick={() => setPlanPanelVisible(true)}
+                  title="Show plan"
+                  className="shrink-0 flex flex-col items-center justify-center gap-1.5 w-7 border-r border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-900/60 hover:bg-gray-100 dark:hover:bg-gray-800/80 transition group"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 rotate-180">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                  <span className="[writing-mode:vertical-rl] text-[9px] uppercase tracking-widest font-semibold text-gray-300 dark:text-gray-600 group-hover:text-gray-500 dark:group-hover:text-gray-400 select-none">
+                    Plan
+                  </span>
+                </button>
+              )}
+              {displayedPlan && planPanelVisible && (
                 <AgenticTimeline
                   steps={displayedPlan.steps}
                   currentStep={displayedPlan.currentStep}
@@ -835,6 +852,7 @@ export default function App() {
                   iteration={agenticIteration}
                   maxIterations={MAX_AGENTIC_ITER}
                   isHistorical={displayedPlan.isHistorical}
+                  onHide={() => setPlanPanelVisible(false)}
                   onClear={() => {
                     stopAgenticLoop()
                     setAgenticPlanSteps([])
@@ -842,6 +860,7 @@ export default function App() {
                     setAgenticCurrentStep(0)
                     agenticCurrentStepRef.current = 0
                     setVisibleRunId(null)
+                    setPlanPanelVisible(true)
                   }}
                 />
               )}

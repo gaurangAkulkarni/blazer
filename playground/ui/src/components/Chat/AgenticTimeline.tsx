@@ -8,11 +8,12 @@ interface Props {
   iteration: number
   maxIterations: number
   onClear?: () => void
+  onHide?: () => void
   isHistorical?: boolean
 }
 
 
-export function AgenticTimeline({ steps, currentStep, active, stepError, iteration, maxIterations, onClear, isHistorical }: Props) {
+export function AgenticTimeline({ steps, currentStep, active, stepError, iteration, maxIterations, onClear, onHide, isHistorical }: Props) {
   if (steps.length === 0) return null
 
   // Consider all done if either the loop stopped OR the step pointer is past the end
@@ -39,6 +40,18 @@ export function AgenticTimeline({ steps, currentStep, active, stepError, iterati
             <span className="text-[9px] bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 px-1.5 py-0.5 rounded font-medium uppercase tracking-wide">
               history
             </span>
+          )}
+          {/* Collapse button */}
+          {onHide && (
+            <button
+              onClick={onHide}
+              title="Collapse plan panel"
+              className="p-0.5 rounded text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+            </button>
           )}
           {/* Clear button — always visible so user can dismiss at any point */}
           {onClear && (
