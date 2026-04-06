@@ -208,9 +208,12 @@ export default function App() {
   // — live plan when agentic is actively running
   // — historical plan (all green) for any completed run scrolled into view
   const displayedPlan = useMemo(() => {
+    // Always show a live run regardless of mode toggle
     if (agenticActive && agenticPlanSteps.length > 0) {
       return { steps: agenticPlanSteps, currentStep: agenticCurrentStep, isHistorical: false, runId: agenticRunIdRef.current }
     }
+    // Only show historical plans while agentic mode is still on
+    if (!agenticMode) return null
     const runId = visibleRunId
     if (runId) {
       const planMsg = messages.find((m) => m.agenticRunId === runId && (m.agenticPlanSteps?.length ?? 0) > 0)
@@ -226,7 +229,7 @@ export default function App() {
       }
     }
     return null
-  }, [agenticActive, agenticPlanSteps, agenticCurrentStep, visibleRunId, messages])
+  }, [agenticActive, agenticMode, agenticPlanSteps, agenticCurrentStep, visibleRunId, messages])
 
   const handleSendToAI = useCallback((text: string) => {
     setLeftTab('chat')
