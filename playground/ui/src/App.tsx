@@ -103,7 +103,7 @@ export default function App() {
     setConsoleEngineState(e); persist('blazer_console_engine', e)
   }, [])
 
-  const { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, loadedFiles, replaceFile, removeFile } = useChat(settings, chatEngine)
+  const { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, hideLastMessage, loadedFiles, replaceFile, removeFile } = useChat(settings, chatEngine)
 
   const [activeConnections, setActiveConnections] = useState<ConnectionAlias[]>([])
 
@@ -353,12 +353,14 @@ export default function App() {
       const hasAssessment = beforeDone.length > 150
 
       if (!hasAssessment) {
-        // LLM said DONE without writing the assessment — ask for it
+        // LLM sent a bare DONE with no assessment — hide it so it doesn't
+        // appear as a standalone "DONE" bubble, then ask for the assessment.
+        hideLastMessage()
         agenticIterationRef.current += 1
         setAgenticIteration(agenticIterationRef.current)
         if (agenticIterationRef.current >= MAX_AGENTIC_ITER) { stopAgenticLoop(); return }
         sendMessageRef.current(
-          `You responded with only "DONE" but haven't provided the final assessment yet. Please write your complete analysis and key findings from all the data you gathered, then end with DONE.`,
+          `Please write your complete final assessment — summarise all findings, key insights, and recommendations from the data you analysed. Then end with DONE.`,
           undefined, undefined, { agenticContinuation: true },
         )
         return

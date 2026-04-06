@@ -550,6 +550,18 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
     })
   }, [])
 
+  /** Hide the last assistant message by marking it as an agentic continuation (not shown in UI). */
+  const hideLastMessage = useCallback(() => {
+    setMessages((prev) => {
+      const updated = [...prev]
+      const last = updated[updated.length - 1]
+      if (last?.role === 'assistant') {
+        updated[updated.length - 1] = { ...last, agenticContinuation: true }
+      }
+      return updated
+    })
+  }, [])
+
   const stopStream = useCallback(() => {
     if (stopStreamRef.current) {
       stopStreamRef.current()
@@ -557,6 +569,6 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
     }
   }, [])
 
-  return { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, loadedFiles, addFiles, replaceFile, removeFile }
+  return { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, hideLastMessage, loadedFiles, addFiles, replaceFile, removeFile }
 }
 
