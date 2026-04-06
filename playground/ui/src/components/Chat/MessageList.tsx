@@ -19,14 +19,37 @@ interface Props {
   agenticCurrentStep?: number
   agenticPlanSteps?: string[]
   agenticStepError?: boolean
+  /** Called with the runId when an agentic-plan message scrolls into view */
+  onRunVisible?: (runId: string) => void
 }
 
-export function MessageList({ messages, isStreaming, onQueryResult, onSend, onAppendToChat, autoRun, onSaveSnippet, snippetGroups, agenticMode, agenticActive, agenticCurrentStep, agenticPlanSteps, agenticStepError }: Props) {
+export function MessageList({ messages, isStreaming, onQueryResult, onSend, onAppendToChat, autoRun, onSaveSnippet, snippetGroups, agenticMode, agenticActive, agenticCurrentStep, agenticPlanSteps, agenticStepError, onRunVisible }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const observerRef = useRef<IntersectionObserver | null>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, isStreaming])
+
+  // IntersectionObserver: call onRunVisible when an agentic plan message enters the viewport
+  useEffect(() => {
+    if (!onRunVisible) return
+    observerRef.current?.disconnect()
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const runId = (entry.target as HTMLElement).dataset.runId
+            if (runId) onRunVisible(runId)
+          }
+        }
+      },
+      { root: null, threshold: 0.2 },
+    )
+    // Observe all currently rendered plan-start elements
+    document.querySelectorAll('[data-run-id]').forEach((el) => observerRef.current?.observe(el))
+    return () => observerRef.current?.disconnect()
+  }, [messages, onRunVisible])
 
   const lastMsg = messages[messages.length - 1]
   // Show full rotating indicator when we're waiting for the very first chunk
@@ -53,24 +76,26 @@ export function MessageList({ messages, isStreaming, onQueryResult, onSend, onAp
         if (msg.role === 'assistant' && !msg.content.trim()) return null
         // Hide internal agentic loop continuation messages from the chat UI
         if (msg.agenticContinuation) return null
+        const isRunStart = (msg.agenticPlanSteps?.length ?? 0) > 0 && msg.agenticRunId
         return (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            onQueryResult={onQueryResult}
-            onSend={onSend}
-            onAppendToChat={onAppendToChat}
-            isStreaming={isStreaming}
-            isLastMessage={idx === messages.length - 1}
-            autoRun={autoRun}
-            onSaveSnippet={onSaveSnippet}
-            snippetGroups={snippetGroups}
-            agenticMode={agenticMode}
-            agenticActive={agenticActive}
-            agenticCurrentStep={agenticCurrentStep}
-            agenticPlanSteps={agenticPlanSteps}
-            agenticStepError={agenticStepError}
-          />
+          <div key={msg.id} data-run-id={isRunStart ? msg.agenticRunId : undefined}>
+            <MessageBubble
+              message={msg}
+              onQueryResult={onQueryResult}
+              onSend={onSend}
+              onAppendToChat={onAppendToChat}
+              isStreaming={isStreaming}
+              isLastMessage={idx === messages.length - 1}
+              autoRun={autoRun}
+              onSaveSnippet={onSaveSnippet}
+              snippetGroups={snippetGroups}
+              agenticMode={agenticMode}
+              agenticActive={agenticActive}
+              agenticCurrentStep={agenticCurrentStep}
+              agenticPlanSteps={agenticPlanSteps}
+              agenticStepError={agenticStepError}
+            />
+          </div>
         )
       })}
 

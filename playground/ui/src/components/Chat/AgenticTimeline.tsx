@@ -8,10 +8,11 @@ interface Props {
   iteration: number
   maxIterations: number
   onClear?: () => void
+  isHistorical?: boolean
 }
 
 
-export function AgenticTimeline({ steps, currentStep, active, stepError, iteration, maxIterations, onClear }: Props) {
+export function AgenticTimeline({ steps, currentStep, active, stepError, iteration, maxIterations, onClear, isHistorical }: Props) {
   if (steps.length === 0) return null
 
   // Consider all done if either the loop stopped OR the step pointer is past the end
@@ -34,6 +35,11 @@ export function AgenticTimeline({ steps, currentStep, active, stepError, iterati
               <span>{steps.length}</span>
             )}
           </span>
+          {isHistorical && (
+            <span className="text-[9px] bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 px-1.5 py-0.5 rounded font-medium uppercase tracking-wide">
+              history
+            </span>
+          )}
           {/* Clear button — always visible so user can dismiss at any point */}
           {onClear && (
             <button

@@ -54,6 +54,10 @@ export interface ChatMessage {
   sentContext?: { role: string; content: string }[]
   /** Internal agentic loop continuation message — hidden from chat UI */
   agenticContinuation?: boolean
+  /** UUID grouping messages from one agentic run */
+  agenticRunId?: string
+  /** Plan steps — stored only on the first assistant message of each run */
+  agenticPlanSteps?: string[]
 }
 
 export interface CustomSkill {

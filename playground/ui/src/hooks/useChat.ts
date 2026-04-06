@@ -247,7 +247,7 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
   }, [])
 
   const sendMessage = useCallback(
-    async (content: string, newAttachments?: AttachedFile[], perMessageSkillIds?: string[], opts?: { agenticMode?: boolean; agenticContinuation?: boolean; activeConnections?: ConnectionAlias[] }) => {
+    async (content: string, newAttachments?: AttachedFile[], perMessageSkillIds?: string[], opts?: { agenticMode?: boolean; agenticContinuation?: boolean; activeConnections?: ConnectionAlias[]; agenticRunId?: string }) => {
       let allFiles = loadedFiles
       if (newAttachments && newAttachments.length > 0) {
         addFiles(newAttachments)
@@ -398,9 +398,11 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
         attachedFiles: newAttachments,
         sentContext: apiMessages,
         agenticContinuation: opts?.agenticContinuation,
+        agenticRunId: opts?.agenticRunId,
       }
       const assistantMsg: ChatMessage = {
         id: nextId(), role: 'assistant', content: '', timestamp: Date.now(),
+        agenticRunId: opts?.agenticRunId,
       }
 
       setMessages((prev) => [...prev, userMsg, assistantMsg])
@@ -538,13 +540,13 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
 
   const clearMessages = useCallback(() => setMessages([]), [])
 
-  /** Overwrite the content of the last assistant message (used to strip DONE token). */
-  const patchLastMessage = useCallback((content: string) => {
+  /** Update fields on the last assistant message (e.g. strip DONE, store plan steps). */
+  const patchLastMessage = useCallback((patch: Partial<ChatMessage>) => {
     setMessages((prev) => {
       const updated = [...prev]
       const last = updated[updated.length - 1]
       if (last?.role === 'assistant') {
-        updated[updated.length - 1] = { ...last, content }
+        updated[updated.length - 1] = { ...last, ...patch }
       }
       return updated
     })

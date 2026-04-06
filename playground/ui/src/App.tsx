@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { MessageList } from './components/Chat/MessageList'
 import { InputBar } from './components/Chat/InputBar'
@@ -155,9 +155,11 @@ export default function App() {
   const [agenticPlanSteps, setAgenticPlanSteps] = useState<string[]>([])
   const [agenticStepError, setAgenticStepError] = useState(false)
   const [agenticIteration, setAgenticIteration] = useState(0)
+  const [visibleRunId, setVisibleRunId] = useState<string | null>(null)
 
   // Refs — stable values accessible inside callbacks without stale closures
   const agenticActiveRef = useRef(false)
+  const agenticRunIdRef = useRef<string>('')
   const agenticIterationRef = useRef(0)
   const agenticCurrentStepRef = useRef(0)
   const agenticPlanStepsRef = useRef<string[]>([])
@@ -200,6 +202,30 @@ export default function App() {
     }
     return steps
   }
+
+  // Derive which plan to display in the side panel:
+  // — live plan when agentic is actively running
+  // — historical plan (all green) for any completed run scrolled into view
+  const displayedPlan = useMemo(() => {
+    if (agenticActive && agenticPlanSteps.length > 0) {
+      return { steps: agenticPlanSteps, currentStep: agenticCurrentStep, isHistorical: false, runId: agenticRunIdRef.current }
+    }
+    const runId = visibleRunId
+    if (runId) {
+      const planMsg = messages.find((m) => m.agenticRunId === runId && (m.agenticPlanSteps?.length ?? 0) > 0)
+      if (planMsg?.agenticPlanSteps?.length) {
+        return { steps: planMsg.agenticPlanSteps, currentStep: planMsg.agenticPlanSteps.length, isHistorical: true, runId }
+      }
+    }
+    // Fallback: most recent completed run in message history
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if ((m.agenticPlanSteps?.length ?? 0) > 0) {
+        return { steps: m.agenticPlanSteps!, currentStep: m.agenticPlanSteps!.length, isHistorical: true, runId: m.agenticRunId ?? '' }
+      }
+    }
+    return null
+  }, [agenticActive, agenticPlanSteps, agenticCurrentStep, visibleRunId, messages])
 
   const handleSendToAI = useCallback((text: string) => {
     setLeftTab('chat')
@@ -291,7 +317,7 @@ export default function App() {
           const lang = failedItem.engine === 'duckdb' ? 'sql' : 'json'
           sendMessageRef.current(
             `The query returned an error:\n\n\`\`\`${lang}\n${failedItem.query}\n\`\`\`\n\nError:\n\`\`\`\n${failedItem.result.error ?? 'Unknown error'}\n\`\`\`\n\nDiagnose the error, fix the SQL, and output the corrected query.`,
-            undefined, undefined, { agenticContinuation: true },
+            undefined, undefined, { agenticContinuation: true, agenticRunId: agenticRunIdRef.current },
           )
         } else {
           setAgenticStepError(false)
@@ -308,7 +334,7 @@ export default function App() {
 
           sendMessageRef.current(
             `${resultContext}\n\nContinue toward the goal. When ALL steps are fully complete and the objective is achieved, respond with only: DONE`,
-            undefined, undefined, { agenticContinuation: true },
+            undefined, undefined, { agenticContinuation: true, agenticRunId: agenticRunIdRef.current },
           )
         }
       }, 800)
@@ -338,6 +364,8 @@ export default function App() {
       if (steps.length > 0) {
         agenticPlanStepsRef.current = steps
         setAgenticPlanSteps(steps)
+        // Persist plan in the message so it survives scrollback
+        patchLastMessage({ agenticPlanSteps: steps, agenticRunId: agenticRunIdRef.current })
       }
     }
 
@@ -361,13 +389,13 @@ export default function App() {
         if (agenticIterationRef.current >= MAX_AGENTIC_ITER) { stopAgenticLoop(); return }
         sendMessageRef.current(
           `Please write your complete final assessment — summarise all findings, key insights, and recommendations from the data you analysed. Then end with DONE.`,
-          undefined, undefined, { agenticContinuation: true },
+          undefined, undefined, { agenticContinuation: true, agenticRunId: agenticRunIdRef.current },
         )
         return
       }
 
       // Strip the trailing DONE token from the displayed message
-      patchLastMessage(beforeDone)
+      patchLastMessage({ content: beforeDone })
       setAgenticCurrentStep(agenticPlanStepsRef.current.length)
       agenticCurrentStepRef.current = agenticPlanStepsRef.current.length
       stopAgenticLoop()
@@ -422,7 +450,7 @@ export default function App() {
 
         sendMessageRef.current(
           `Continue toward the goal. When ALL steps are fully complete and the objective is achieved, respond with only: DONE`,
-          undefined, undefined, { agenticContinuation: true },
+          undefined, undefined, { agenticContinuation: true, agenticRunId: agenticRunIdRef.current },
         )
       }
       // If SQL is present OR a query already ran — handleQueryResult drives the next turn.
@@ -463,6 +491,7 @@ export default function App() {
     (content: string, attachments?: AttachedFile[], perMessageSkillIds?: string[]) => {
       if (agenticMode) {
         agenticActiveRef.current = true
+        agenticRunIdRef.current = crypto.randomUUID()
         agenticIterationRef.current = 0
         agenticCurrentStepRef.current = 0
         agenticPlanStepsRef.current = []
@@ -471,7 +500,7 @@ export default function App() {
         setAgenticPlanSteps([])
         setAgenticStepError(false)
         setAgenticIteration(0)
-        sendMessage(content, attachments, perMessageSkillIds, { agenticMode: true, activeConnections })
+        sendMessage(content, attachments, perMessageSkillIds, { agenticMode: true, activeConnections, agenticRunId: agenticRunIdRef.current })
       } else {
         sendMessage(content, attachments, perMessageSkillIds, { activeConnections })
       }
@@ -797,20 +826,22 @@ export default function App() {
 
             {/* Chat body: optional agentic timeline + messages/input */}
             <div className="flex flex-1 min-h-0">
-              {agenticPlanSteps.length > 0 && (
+              {displayedPlan && (
                 <AgenticTimeline
-                  steps={agenticPlanSteps}
-                  currentStep={agenticCurrentStep}
-                  active={agenticActive}
+                  steps={displayedPlan.steps}
+                  currentStep={displayedPlan.currentStep}
+                  active={agenticActive && !displayedPlan.isHistorical}
                   stepError={agenticStepError}
                   iteration={agenticIteration}
                   maxIterations={MAX_AGENTIC_ITER}
+                  isHistorical={displayedPlan.isHistorical}
                   onClear={() => {
                     stopAgenticLoop()
                     setAgenticPlanSteps([])
                     agenticPlanStepsRef.current = []
                     setAgenticCurrentStep(0)
                     agenticCurrentStepRef.current = 0
+                    setVisibleRunId(null)
                   }}
                 />
               )}
@@ -829,6 +860,7 @@ export default function App() {
                   agenticCurrentStep={agenticCurrentStep}
                   agenticPlanSteps={agenticPlanSteps}
                   agenticStepError={agenticStepError}
+                  onRunVisible={setVisibleRunId}
                 />
                 <InputBar
                   onSend={handleSend}
