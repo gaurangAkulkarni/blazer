@@ -63,6 +63,14 @@ export interface CustomSkill {
   prompt: string
 }
 
+export interface ConnectionAlias {
+  id: string
+  name: string           // user-given label, e.g. "prod-postgres"
+  ext_type: string       // DuckDB extension: "postgres", "mysql", "sqlite", "httpfs", "spatial", etc.
+  connection_string: string  // e.g. "postgresql://user:pass@host/db" — empty for non-DB extensions
+  description?: string
+}
+
 export interface ProviderSettings {
   api_key: string
   model: string
@@ -88,6 +96,8 @@ export interface AppSettings {
   show_follow_up_chips?: boolean
   /** Max number of previous messages to include in context (0 = all) */
   context_history_limit?: number
+  /** Named database/extension connections available for use in queries */
+  connections?: ConnectionAlias[]
 }
 
 export interface SnippetGroup {
@@ -116,4 +126,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   custom_skills: [],
   show_follow_up_chips: true,
   context_history_limit: 20, // 0 = all
+  connections: [],
 }

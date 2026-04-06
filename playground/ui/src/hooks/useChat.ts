@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { ChatMessage, AppSettings, AttachedFile, QueryResult } from '../lib/types'
+import type { ChatMessage, AppSettings, AttachedFile, QueryResult, ConnectionAlias } from '../lib/types'
 import { resolveSkillPrompts, ENGINE_SKILL_IDS } from '../lib/skills'
 
 export type Engine = 'blazer' | 'duckdb'
@@ -245,7 +245,7 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
   }, [])
 
   const sendMessage = useCallback(
-    async (content: string, newAttachments?: AttachedFile[], perMessageSkillIds?: string[], opts?: { agenticMode?: boolean; agenticContinuation?: boolean }) => {
+    async (content: string, newAttachments?: AttachedFile[], perMessageSkillIds?: string[], opts?: { agenticMode?: boolean; agenticContinuation?: boolean; activeConnections?: ConnectionAlias[] }) => {
       let allFiles = loadedFiles
       if (newAttachments && newAttachments.length > 0) {
         addFiles(newAttachments)
@@ -360,6 +360,22 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
         apiMessages.push({ role: 'system', content: (skillPrompt ?? '') + suggestionsInstruction + agenticInstruction })
       }
       if (fileContext) apiMessages.push({ role: 'system', content: fileContext })
+
+      // Active connection context
+      if (opts?.activeConnections && opts.activeConnections.length > 0) {
+        const connLines = opts.activeConnections.map((c) => {
+          const safeName = c.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
+          const attachAs = c.connection_string ? ` — attached as \`${safeName}\`` : ''
+          const queryHint = c.connection_string
+            ? `Query with: SELECT * FROM ${safeName}.schema.tablename`
+            : `Use with: LOAD '${c.ext_type}'; then use its functions directly`
+          return `- **${c.name}** (${c.ext_type})${attachAs}\n  ${queryHint}${c.description ? `\n  ${c.description}` : ''}`
+        }).join('\n')
+        apiMessages.push({
+          role: 'system',
+          content: `## Active Database Connections\nThe following connections are pre-attached in DuckDB for this query:\n${connLines}`,
+        })
+      }
 
       // Include previous messages, capped by context_history_limit (0 = all)
       // Skip: empty assistant messages, and error messages — they waste tokens and confuse local models

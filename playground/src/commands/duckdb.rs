@@ -1,3 +1,4 @@
+use crate::commands::settings::ConnectionAlias;
 use duckdb::types::Value as DuckValue;
 use duckdb::Connection;
 use serde_json::Value;
@@ -77,27 +78,24 @@ fn execute_sql_native(
 ) -> Result<(Vec<serde_json::Map<String, Value>>, Vec<String>), String> {
     let conn = Connection::open_in_memory()
         .map_err(|e| format!("DuckDB connection error: {e}"))?;
+    execute_sql_on_conn(&conn, sql)
+}
 
+fn execute_sql_on_conn(
+    conn: &Connection,
+    sql: &str,
+) -> Result<(Vec<serde_json::Map<String, Value>>, Vec<String>), String> {
     let mut stmt = conn
         .prepare(sql)
         .map_err(|e| format!("SQL error: {e}"))?;
 
-    // ── Phase 1: execute and collect raw values ───────────────────────────────
-    //
-    // `Statement::column_names()` panics if called BEFORE the statement has
-    // been stepped ("execute"d).  We must not call it here.
-    //
-    // Instead, collect each row as a plain Vec<DuckValue> using index-based
-    // `row.get(i)`.  Inside the query_map closure the statement is already
-    // running, so `row.get(i)` returns Err(InvalidColumnIndex) — not a panic —
-    // when i ≥ column_count.  We use that as the loop terminator.
     let raw_rows: Vec<Vec<DuckValue>> = stmt
         .query_map([], |row| {
             let mut vals = Vec::new();
             for i in 0_usize.. {
                 match row.get::<_, DuckValue>(i) {
                     Ok(v)  => vals.push(v),
-                    Err(_) => break,   // i >= column_count → no more columns
+                    Err(_) => break,
                 }
             }
             Ok(vals)
@@ -106,13 +104,8 @@ fn execute_sql_native(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Row collection error: {e}"))?;
 
-    // ── Phase 2: read column names after execution ────────────────────────────
-    //
-    // Now that query_map has finished stepping through the result set, the
-    // statement IS executed and column_names() is safe to call.
     let column_names = stmt.column_names();
 
-    // ── Phase 3: zip names + values → JSON objects ────────────────────────────
     let rows: Vec<serde_json::Map<String, Value>> = raw_rows
         .into_iter()
         .map(|vals| {
@@ -199,6 +192,145 @@ fn duck_to_json(val: DuckValue) -> Value {
         // Union: unwrap the inner value
         DuckValue::Union(inner) => duck_to_json(*inner),
     }
+}
+
+// ── Extension management ──────────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+pub struct ExtensionInfo {
+    pub name: String,
+    pub loaded: bool,
+    pub installed: bool,
+    pub description: String,
+}
+
+/// List all DuckDB extensions with their install/load status.
+#[tauri::command]
+pub async fn list_duckdb_extensions() -> Vec<ExtensionInfo> {
+    let task = tokio::task::spawn_blocking(|| {
+        let conn = Connection::open_in_memory().ok()?;
+        let sql = "SELECT extension_name, loaded, installed, description \
+                   FROM duckdb_extensions() \
+                   ORDER BY installed DESC, extension_name";
+        let mut stmt = conn.prepare(sql).ok()?;
+        let rows: Vec<ExtensionInfo> = stmt
+            .query_map([], |row| {
+                Ok(ExtensionInfo {
+                    name: row.get::<_, String>(0).unwrap_or_default(),
+                    loaded: row.get::<_, bool>(1).unwrap_or(false),
+                    installed: row.get::<_, bool>(2).unwrap_or(false),
+                    description: row.get::<_, String>(3).unwrap_or_default(),
+                })
+            })
+            .ok()?
+            .flatten()
+            .collect();
+        Some(rows)
+    });
+    match task.await {
+        Ok(Some(v)) => v,
+        _ => vec![],
+    }
+}
+
+/// Install and load a DuckDB extension by name.
+#[tauri::command]
+pub async fn install_duckdb_extension(name: String) -> Result<String, String> {
+    let task = tokio::task::spawn_blocking(move || {
+        let conn = Connection::open_in_memory()
+            .map_err(|e| format!("Connection error: {e}"))?;
+        conn.execute_batch(&format!("INSTALL '{}';", name))
+            .map_err(|e| format!("Install failed: {e}"))?;
+        conn.execute_batch(&format!("LOAD '{}';", name))
+            .map_err(|e| format!("Load failed: {e}"))?;
+        Ok(format!("Extension '{}' installed successfully.", name))
+    });
+    match task.await {
+        Ok(r) => r,
+        Err(e) => Err(format!("Task error: {e}")),
+    }
+}
+
+/// Run a DuckDB query with one or more named connections pre-attached.
+///
+/// For each connection:
+///   1. INSTALL + LOAD the extension if not already loaded.
+///   2. ATTACH the connection string (for database-type extensions).
+/// Then run the user SQL on the same connection.
+#[tauri::command]
+pub async fn run_duckdb_query_with_connections(
+    sql: String,
+    connections: Vec<ConnectionAlias>,
+) -> DuckDbResult {
+    let task = tokio::task::spawn_blocking(move || {
+        let start = std::time::Instant::now();
+        let result = execute_sql_with_connections(&sql, &connections);
+        let duration_ms = start.elapsed().as_millis() as u64;
+        (result, duration_ms)
+    });
+
+    match task.await {
+        Ok((Ok((data, columns)), duration_ms)) => {
+            let shape = [data.len(), columns.len()];
+            DuckDbResult { success: true, error: None, data, columns, shape, duration_ms }
+        }
+        Ok((Err(e), duration_ms)) => DuckDbResult {
+            success: false, error: Some(e), data: vec![], columns: vec![], shape: [0, 0], duration_ms,
+        },
+        Err(e) => DuckDbResult {
+            success: false, error: Some(format!("Task error: {e}")), data: vec![], columns: vec![], shape: [0, 0], duration_ms: 0,
+        },
+    }
+}
+
+fn execute_sql_with_connections(
+    sql: &str,
+    connections: &[ConnectionAlias],
+) -> Result<(Vec<serde_json::Map<String, Value>>, Vec<String>), String> {
+    let conn = Connection::open_in_memory()
+        .map_err(|e| format!("DuckDB connection error: {e}"))?;
+
+    for alias in connections {
+        // Install + load the extension
+        if let Err(e) = conn.execute_batch(&format!("INSTALL '{}';", alias.ext_type)) {
+            // Ignore "already installed" errors
+            if !e.to_string().contains("already") {
+                return Err(format!("Failed to install extension '{}': {e}", alias.ext_type));
+            }
+        }
+        if let Err(e) = conn.execute_batch(&format!("LOAD '{}';", alias.ext_type)) {
+            if !e.to_string().contains("already") {
+                return Err(format!("Failed to load extension '{}': {e}", alias.ext_type));
+            }
+        }
+
+        // Attach database connections
+        if !alias.connection_string.is_empty() {
+            let attach_type = match alias.ext_type.as_str() {
+                "postgres" => Some("POSTGRES"),
+                "mysql"    => Some("MYSQL"),
+                "sqlite"   => Some("SQLITE"),
+                _          => None,
+            };
+            if let Some(db_type) = attach_type {
+                // Sanitise alias name: lowercase, spaces → underscores, alphanumeric + _ only
+                let safe_name: String = alias
+                    .name
+                    .to_lowercase()
+                    .chars()
+                    .map(|c| if c.is_alphanumeric() { c } else { '_' })
+                    .collect();
+                let conn_str = alias.connection_string.replace('\'', "''");
+                let attach_sql = format!(
+                    "ATTACH '{conn_str}' AS {safe_name} (TYPE {db_type}, READ_ONLY);"
+                );
+                conn.execute_batch(&attach_sql)
+                    .map_err(|e| format!("Failed to attach '{}': {e}", alias.name))?;
+            }
+        }
+    }
+
+    execute_sql_on_conn(&conn, sql)
 }
 
 // ── Parquet export ────────────────────────────────────────────────────────────

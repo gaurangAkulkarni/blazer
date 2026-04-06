@@ -19,6 +19,9 @@ pub fn run() {
             commands::duckdb::check_duckdb,
             commands::duckdb::install_duckdb,
             commands::duckdb::run_duckdb_query,
+            commands::duckdb::list_duckdb_extensions,
+            commands::duckdb::install_duckdb_extension,
+            commands::duckdb::run_duckdb_query_with_connections,
             commands::duckdb::export_to_parquet,
         ])
         .setup(|app| {

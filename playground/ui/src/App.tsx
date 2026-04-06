@@ -23,6 +23,8 @@ import type { QueryResult, LeftTab, AttachedFile } from './lib/types'
 import type { ReplayRequest } from './components/Console/ConsoleEditor'
 import { BUILT_IN_SKILLS } from './lib/skills'
 import type { Skill } from './lib/skills'
+import { ConnectionsContext } from './lib/ConnectionsContext'
+import type { ConnectionAlias } from './lib/types'
 
 // ── Agentic result context builder ───────────────────────────────────────────
 // Builds a rich markdown representation of query results to send back to the
@@ -102,6 +104,17 @@ export default function App() {
   }, [])
 
   const { messages, sendMessage, isStreaming, addQueryResult, clearMessages, loadedFiles, replaceFile, removeFile } = useChat(settings, chatEngine)
+
+  const [activeConnections, setActiveConnections] = useState<ConnectionAlias[]>([])
+
+  const addConnection = useCallback((conn: ConnectionAlias) => {
+    setActiveConnections((prev) => prev.some((c) => c.id === conn.id) ? prev : [...prev, conn])
+  }, [])
+
+  const removeConnection = useCallback((id: string) => {
+    setActiveConnections((prev) => prev.filter((c) => c.id !== id))
+  }, [])
+
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
 
@@ -439,12 +452,12 @@ export default function App() {
         setAgenticPlanSteps([])
         setAgenticStepError(false)
         setAgenticIteration(0)
-        sendMessage(content, attachments, perMessageSkillIds, { agenticMode: true })
+        sendMessage(content, attachments, perMessageSkillIds, { agenticMode: true, activeConnections })
       } else {
-        sendMessage(content, attachments, perMessageSkillIds)
+        sendMessage(content, attachments, perMessageSkillIds, { activeConnections })
       }
     },
-    [agenticMode, sendMessage],
+    [agenticMode, sendMessage, activeConnections],
   )
 
   // ── Resizable split pane ────────────────────────────────────────────────────
@@ -513,6 +526,7 @@ export default function App() {
   const activeModel = isOllama ? settings.ollama?.model : settings[settings.active_provider]?.model
 
   return (
+    <ConnectionsContext.Provider value={activeConnections}>
     <div className="h-screen flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
       {/* Title bar — draggable */}
       <header
@@ -807,6 +821,10 @@ export default function App() {
                   prefill={aiPrefill}
                   onPrefillConsumed={() => setAiPrefill('')}
                   availableSkills={allSkills}
+                  availableConnections={settings.connections ?? []}
+                  activeConnections={activeConnections}
+                  onAddConnection={addConnection}
+                  onRemoveConnection={removeConnection}
                 />
               </div>
             </div>
@@ -922,5 +940,6 @@ export default function App() {
         />
       )}
     </div>
+    </ConnectionsContext.Provider>
   )
 }

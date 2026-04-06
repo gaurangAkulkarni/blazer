@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useContext, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { ChatStreamContext } from './ChatStreamContext'
+import { ConnectionsContext } from '../../lib/ConnectionsContext'
 import type { QueryResult, SnippetGroup } from '../../lib/types'
 
 // ── Mini save-snippet popover (with group picker) ─────────────────────────────
@@ -85,6 +86,7 @@ interface Props {
 export function QueryBlock({ code, language, index = 0, onQueryResult }: Props) {
   // isStreaming, autoRun, messageId, existingResults, onSaveSnippet, onSendToChat, agenticMode come from context
   const { isStreaming, autoRun, agenticMode, messageId, existingResults, onSaveSnippet, snippetGroups = [], onSendToChat } = useContext(ChatStreamContext)
+  const activeConnections = useContext(ConnectionsContext)
 
   // ── Stable queryId: computed once from (messageId + index + code), same across restarts ──
   const queryIdRef = useRef<string | null>(null)
@@ -173,7 +175,9 @@ export function QueryBlock({ code, language, index = 0, onQueryResult }: Props) 
     try {
       let r: QueryResult
       if (isSqlQuery) {
-        r = await invoke<QueryResult>('run_duckdb_query', { sql: displayCode })
+        r = activeConnections.length > 0
+          ? await invoke<QueryResult>('run_duckdb_query_with_connections', { sql: displayCode, connections: activeConnections })
+          : await invoke<QueryResult>('run_duckdb_query', { sql: displayCode })
       } else {
         const parsed = JSON.parse(code)
         r = await invoke<QueryResult>('run_query', { query: parsed })

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { DataExplorer } from '../DataExplorer'
-import type { AttachedFile } from '../../lib/types'
+import type { AttachedFile, ConnectionAlias } from '../../lib/types'
 import type { Skill } from '../../lib/skills'
 
 interface FileInfo {
@@ -22,9 +22,15 @@ interface Props {
   prefill?: string
   onPrefillConsumed?: () => void
   availableSkills?: Skill[]
+  /** All configured connection aliases from settings */
+  availableConnections?: ConnectionAlias[]
+  /** Currently active connections for this chat */
+  activeConnections?: ConnectionAlias[]
+  onAddConnection?: (conn: ConnectionAlias) => void
+  onRemoveConnection?: (id: string) => void
 }
 
-export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile, onReplaceFile, prefill, onPrefillConsumed, availableSkills = [] }: Props) {
+export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile, onReplaceFile, prefill, onPrefillConsumed, availableSkills = [], availableConnections = [], activeConnections = [], onAddConnection, onRemoveConnection }: Props) {
   const [input, setInput] = useState('')
   const [pendingFiles, setPendingFiles] = useState<AttachedFile[]>([])
   const [converting, setConverting] = useState<Set<string>>(new Set())
@@ -35,6 +41,8 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
   const [skillFilter, setSkillFilter] = useState<string | null>(null)
   const [skillPickerIdx, setSkillPickerIdx] = useState(0)
   const skillPickerRef = useRef<HTMLDivElement>(null)
+  const [connPickerOpen, setConnPickerOpen] = useState(false)
+  const connPickerRef = useRef<HTMLDivElement>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -64,6 +72,18 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
     const el = skillPickerRef.current?.children[skillPickerIdx] as HTMLElement | undefined
     el?.scrollIntoView({ block: 'nearest' })
   }, [skillPickerIdx, skillFilter])
+
+  // Close connection picker when clicking outside
+  useEffect(() => {
+    if (!connPickerOpen) return
+    const handler = (e: MouseEvent) => {
+      if (connPickerRef.current && !connPickerRef.current.contains(e.target as Node)) {
+        setConnPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [connPickerOpen])
 
   // Filtered skills for the picker
   const filteredSkills = skillFilter === null
@@ -273,6 +293,75 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
         </div>
       )}
 
+      {/* Active connection chips */}
+      {activeConnections.length > 0 && (
+        <div className="flex items-center gap-1.5 mb-2 max-w-4xl mx-auto flex-wrap">
+          <span className="text-xs text-gray-400 mr-1">Connected:</span>
+          {activeConnections.map((conn) => (
+            <span key={conn.id} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border bg-amber-50 text-amber-700 border-amber-200">
+              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+              <span className="font-medium">{conn.name}</span>
+              <button
+                onClick={() => onRemoveConnection?.(conn.id)}
+                className="opacity-50 hover:opacity-100 ml-0.5 flex items-center"
+                title="Remove connection"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Connection picker dropdown */}
+      {connPickerOpen && (
+        <div className="relative max-w-4xl mx-auto mb-1">
+          <div
+            ref={connPickerRef}
+            className="absolute bottom-full left-0 mb-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden z-50 min-w-[260px] max-h-56 overflow-y-auto"
+          >
+            {availableConnections.length === 0 ? (
+              <div className="px-3 py-3 text-xs text-gray-400 text-center">
+                <p>No connections configured.</p>
+                <p className="mt-1">Add them in <span className="font-medium text-gray-600">Settings → Extensions → Connections</span></p>
+              </div>
+            ) : (
+              availableConnections.map((conn) => {
+                const isActive = activeConnections.some((c) => c.id === conn.id)
+                return (
+                  <button
+                    key={conn.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      if (isActive) {
+                        onRemoveConnection?.(conn.id)
+                      } else {
+                        onAddConnection?.(conn)
+                      }
+                      setConnPickerOpen(false)
+                    }}
+                    className={`w-full text-left px-3 py-2 flex items-center gap-2.5 transition-colors ${
+                      isActive ? 'bg-amber-50' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${isActive ? 'bg-amber-200' : 'bg-gray-100'}`}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={isActive ? 'text-amber-700' : 'text-gray-500'}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-gray-800 truncate">{conn.name}</div>
+                      <div className="text-[11px] text-gray-400 truncate">{conn.ext_type}{conn.connection_string ? ` · ${conn.connection_string.replace(/:([^:@]+)@/, ':●●●@')}` : ''}</div>
+                    </div>
+                    {isActive && (
+                      <span className="ml-auto shrink-0 text-[10px] text-amber-600 font-medium">active</span>
+                    )}
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Skill picker dropdown */}
       {skillFilter !== null && (
         <div className="relative max-w-4xl mx-auto mb-1">
@@ -332,6 +421,25 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
           </svg>
         </button>
+        {availableConnections.length > 0 && (
+          <button
+            onClick={() => setConnPickerOpen((p) => !p)}
+            disabled={disabled}
+            className={`relative p-2.5 rounded-xl transition disabled:opacity-30 shrink-0 ${
+              activeConnections.length > 0
+                ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+                : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+            }`}
+            title="Select database connections"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            {activeConnections.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-amber-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                {activeConnections.length}
+              </span>
+            )}
+          </button>
+        )}
         <div className="relative flex-1">
           <textarea
             ref={textareaRef}

@@ -1,0 +1,441 @@
+import React, { useState, useEffect, useCallback } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import type { AppSettings, ConnectionAlias } from '../../lib/types'
+
+// ── Known extension catalogue ─────────────────────────────────────────────────
+
+interface ExtCatalogue {
+  id: string
+  name: string
+  description: string
+  category: 'format' | 'database' | 'cloud' | 'analytics' | 'storage'
+  needsConnection: boolean
+  autoloaded?: boolean
+  connPlaceholder?: string
+  connHelp?: string
+}
+
+const CATALOGUE: ExtCatalogue[] = [
+  { id: 'httpfs', name: 'HTTP / S3', description: 'Read files over HTTP, HTTPS, S3, GCS, and R2', category: 'storage', needsConnection: false },
+  { id: 'parquet', name: 'Parquet', description: 'Read and write Parquet files', category: 'format', needsConnection: false, autoloaded: true },
+  { id: 'json', name: 'JSON', description: 'JSON read/write and extraction functions', category: 'format', needsConnection: false, autoloaded: true },
+  { id: 'excel', name: 'Excel', description: 'Read .xlsx files directly with read_xlsx()', category: 'format', needsConnection: false },
+  { id: 'delta', name: 'Delta Lake', description: 'Query Delta Lake tables natively', category: 'format', needsConnection: false },
+  { id: 'iceberg', name: 'Apache Iceberg', description: 'Query Apache Iceberg tables natively', category: 'format', needsConnection: false },
+  { id: 'postgres', name: 'PostgreSQL', description: 'Attach and query Postgres databases directly', category: 'database', needsConnection: true, connPlaceholder: 'postgresql://user:pass@host:5432/dbname', connHelp: 'Standard PostgreSQL connection string' },
+  { id: 'mysql', name: 'MySQL', description: 'Attach and query MySQL databases directly', category: 'database', needsConnection: true, connPlaceholder: 'mysql://user:pass@host:3306/dbname', connHelp: 'Standard MySQL connection string' },
+  { id: 'sqlite', name: 'SQLite', description: 'Read and write SQLite database files', category: 'database', needsConnection: true, connPlaceholder: '/path/to/database.db', connHelp: 'Absolute path to your .db file' },
+  { id: 'spatial', name: 'Spatial', description: 'Geospatial types and PostGIS-style functions', category: 'analytics', needsConnection: false },
+  { id: 'fts', name: 'Full-Text Search', description: 'Full-text search indexes via FTS5', category: 'analytics', needsConnection: false },
+  { id: 'vss', name: 'Vector Search', description: 'Vector similarity search — cosine, L2 distance', category: 'analytics', needsConnection: false },
+  { id: 'aws', name: 'AWS', description: 'AWS credential chain for S3 access', category: 'cloud', needsConnection: false },
+  { id: 'azure', name: 'Azure', description: 'Azure Blob Storage access', category: 'cloud', needsConnection: false },
+]
+
+const CATEGORY_COLORS: Record<string, string> = {
+  format: 'bg-blue-50 text-blue-700 border-blue-200',
+  database: 'bg-violet-50 text-violet-700 border-violet-200',
+  cloud: 'bg-sky-50 text-sky-700 border-sky-200',
+  analytics: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  storage: 'bg-orange-50 text-orange-700 border-orange-200',
+}
+
+// ── Runtime extension status from DuckDB ─────────────────────────────────────
+
+interface ExtensionStatus {
+  name: string
+  loaded: boolean
+  installed: boolean
+  description: string
+}
+
+// ── Connection Form ───────────────────────────────────────────────────────────
+
+function ConnectionForm({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial?: ConnectionAlias
+  onSave: (c: ConnectionAlias) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState(initial?.name ?? '')
+  const [extType, setExtType] = useState(initial?.ext_type ?? 'postgres')
+  const [connStr, setConnStr] = useState(initial?.connection_string ?? '')
+  const [description, setDescription] = useState(initial?.description ?? '')
+
+  const cat = CATALOGUE.find((c) => c.id === extType)
+
+  const save = () => {
+    if (!name.trim()) return
+    onSave({
+      id: initial?.id ?? crypto.randomUUID(),
+      name: name.trim(),
+      ext_type: extType,
+      connection_string: connStr.trim(),
+      description: description.trim() || undefined,
+    })
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-xl p-4 space-y-3 bg-gray-50">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. prod-postgres"
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white"
+          />
+        </div>
+        <div>
+          <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Extension</label>
+          <select
+            value={extType}
+            onChange={(e) => setExtType(e.target.value)}
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white"
+          >
+            {CATALOGUE.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {cat?.needsConnection && (
+        <div>
+          <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Connection String</label>
+          <input
+            type="text"
+            value={connStr}
+            onChange={(e) => setConnStr(e.target.value)}
+            placeholder={cat.connPlaceholder}
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 font-mono bg-white"
+            spellCheck={false}
+          />
+          {cat.connHelp && (
+            <p className="text-[11px] text-gray-400 mt-1">{cat.connHelp}</p>
+          )}
+        </div>
+      )}
+
+      <div>
+        <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Description <span className="normal-case font-normal">(optional)</span></label>
+        <input
+          type="text"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="e.g. Production database — read-only replica"
+          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white"
+        />
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={save}
+          disabled={!name.trim() || (cat?.needsConnection && !connStr.trim())}
+          className="flex-1 bg-gray-900 text-white text-sm rounded-lg py-2 font-medium hover:bg-gray-700 disabled:opacity-30 transition"
+        >
+          {initial ? 'Save changes' : 'Add connection'}
+        </button>
+        <button
+          onClick={onCancel}
+          className="text-sm text-gray-400 hover:text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-100 transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main ExtensionsPanel ──────────────────────────────────────────────────────
+
+interface Props {
+  settings: AppSettings
+  onUpdate: (partial: Partial<AppSettings>) => void
+}
+
+type Tab = 'extensions' | 'connections'
+
+export function ExtensionsPanel({ settings, onUpdate }: Props) {
+  const [tab, setTab] = useState<Tab>('extensions')
+  const [statuses, setStatuses] = useState<Record<string, ExtensionStatus>>({})
+  const [installing, setInstalling] = useState<Record<string, boolean>>({})
+  const [installResults, setInstallResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
+  const [loadingStatuses, setLoadingStatuses] = useState(false)
+  const [editingConn, setEditingConn] = useState<ConnectionAlias | 'new' | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
+  const connections = settings.connections ?? []
+
+  const loadStatuses = useCallback(async () => {
+    setLoadingStatuses(true)
+    try {
+      const list = await invoke<ExtensionStatus[]>('list_duckdb_extensions')
+      const map: Record<string, ExtensionStatus> = {}
+      for (const e of list) map[e.name] = e
+      setStatuses(map)
+    } finally {
+      setLoadingStatuses(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'extensions') loadStatuses()
+  }, [tab, loadStatuses])
+
+  const installExt = async (name: string) => {
+    setInstalling((p) => ({ ...p, [name]: true }))
+    setInstallResults((p) => { const n = { ...p }; delete n[name]; return n })
+    try {
+      const msg = await invoke<string>('install_duckdb_extension', { name })
+      setInstallResults((p) => ({ ...p, [name]: { ok: true, msg } }))
+      await loadStatuses()
+    } catch (err) {
+      setInstallResults((p) => ({ ...p, [name]: { ok: false, msg: String(err) } }))
+    } finally {
+      setInstalling((p) => ({ ...p, [name]: false }))
+    }
+  }
+
+  const saveConnection = (conn: ConnectionAlias) => {
+    const existing = connections.find((c) => c.id === conn.id)
+    const updated = existing
+      ? connections.map((c) => (c.id === conn.id ? conn : c))
+      : [...connections, conn]
+    onUpdate({ connections: updated })
+    setEditingConn(null)
+  }
+
+  const deleteConnection = (id: string) => {
+    onUpdate({ connections: connections.filter((c) => c.id !== id) })
+    setDeleteConfirm(null)
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Tab switcher */}
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+        {(['extensions', 'connections'] as Tab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-all capitalize ${
+              tab === t
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t === 'extensions' ? 'Core Extensions' : `Connections ${connections.length > 0 ? `(${connections.length})` : ''}`}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Extensions tab ──────────────────────────────────────────────────── */}
+      {tab === 'extensions' && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              Extensions are downloaded and cached locally. Auto-loaded ones activate automatically when querying compatible file types.
+            </p>
+            <button
+              onClick={loadStatuses}
+              disabled={loadingStatuses}
+              className="shrink-0 ml-3 text-[11px] text-gray-400 hover:text-gray-700 px-1.5 py-0.5 rounded hover:bg-gray-100 transition"
+              title="Refresh status"
+            >
+              {loadingStatuses ? (
+                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+              ) : '↻ Refresh'}
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {CATALOGUE.map((ext) => {
+              const status = statuses[ext.id]
+              const isInstalled = status?.installed ?? false
+              const isLoaded = status?.loaded ?? false
+              const isInstalling = installing[ext.id] ?? false
+              const result = installResults[ext.id]
+
+              return (
+                <div key={ext.id} className="flex items-start gap-3 p-3 border border-gray-100 rounded-xl hover:border-gray-200 transition bg-white">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-gray-900">{ext.name}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium capitalize ${CATEGORY_COLORS[ext.category]}`}>
+                        {ext.category}
+                      </span>
+                      {ext.autoloaded && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded border bg-gray-50 text-gray-500 border-gray-200 font-medium">
+                          auto-loaded
+                        </span>
+                      )}
+                      {isLoaded && (
+                        <span className="flex items-center gap-1 text-[10px] text-green-600 font-medium bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="7" height="7" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+                          Loaded
+                        </span>
+                      )}
+                      {isInstalled && !isLoaded && (
+                        <span className="flex items-center gap-1 text-[10px] text-blue-600 font-medium bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full">
+                          Installed
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{ext.description}</p>
+                    {result && (
+                      <p className={`text-[11px] mt-1 ${result.ok ? 'text-green-600' : 'text-red-500'}`}>
+                        {result.ok ? '✓' : '✗'} {result.msg}
+                      </p>
+                    )}
+                  </div>
+                  <div className="shrink-0 flex flex-col items-end gap-1.5">
+                    {!isInstalled ? (
+                      <button
+                        onClick={() => installExt(ext.id)}
+                        disabled={isInstalling}
+                        className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition"
+                      >
+                        {isInstalling ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        )}
+                        {isInstalling ? 'Installing…' : 'Install'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => installExt(ext.id)}
+                        disabled={isInstalling}
+                        className="flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50 transition"
+                        title="Reinstall"
+                      >
+                        {isInstalling ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                        ) : '↻'}
+                        {isInstalling ? 'Updating…' : 'Update'}
+                      </button>
+                    )}
+                    {ext.needsConnection && (
+                      <button
+                        onClick={() => { setTab('connections'); setEditingConn('new') }}
+                        className="text-[11px] text-violet-600 hover:text-violet-800 underline underline-offset-2"
+                      >
+                        + Add connection
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Connections tab ──────────────────────────────────────────────────── */}
+      {tab === 'connections' && (
+        <div className="space-y-3">
+          <p className="text-[11px] text-gray-400 leading-relaxed">
+            Named connection aliases let you attach the same extension to multiple instances — e.g. separate "prod" and "staging" Postgres databases.
+            Select connections per-chat using the <span className="font-medium text-gray-600">⊕</span> button in the chat input.
+          </p>
+
+          {connections.length === 0 && editingConn !== 'new' && (
+            <div className="text-center py-8 text-gray-400">
+              <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mx-auto mb-2 opacity-40"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+              <p className="text-sm font-medium text-gray-500">No connections yet</p>
+              <p className="text-[11px] mt-1">Add a PostgreSQL, MySQL, or SQLite connection to query databases directly from chat.</p>
+            </div>
+          )}
+
+          {connections.map((conn) => {
+            const cat = CATALOGUE.find((c) => c.id === conn.ext_type)
+            return (
+              <div key={conn.id}>
+                {editingConn === conn.id ? (
+                  <ConnectionForm
+                    initial={conn as ConnectionAlias}
+                    onSave={saveConnection}
+                    onCancel={() => setEditingConn(null)}
+                  />
+                ) : (
+                  <div className="flex items-start gap-3 p-3 border border-gray-100 rounded-xl hover:border-gray-200 transition bg-white">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-900">{conn.name}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${CATEGORY_COLORS[cat?.category ?? 'database']}`}>
+                          {cat?.name ?? conn.ext_type}
+                        </span>
+                      </div>
+                      {conn.description && (
+                        <p className="text-[11px] text-gray-400 mt-0.5">{conn.description}</p>
+                      )}
+                      {conn.connection_string && (
+                        <p className="text-[11px] font-mono text-gray-400 mt-0.5 truncate">
+                          {conn.connection_string.replace(/:([^:@]+)@/, ':●●●●@')}
+                        </p>
+                      )}
+                    </div>
+                    <div className="shrink-0 flex items-center gap-1">
+                      <button
+                        onClick={() => setEditingConn(conn.id)}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                        title="Edit"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      </button>
+                      {deleteConfirm === conn.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => deleteConnection(conn.id)}
+                            className="text-[11px] px-2 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(null)}
+                            className="text-[11px] px-2 py-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirm(conn.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                          title="Delete"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {editingConn === 'new' ? (
+            <ConnectionForm
+              onSave={saveConnection}
+              onCancel={() => setEditingConn(null)}
+            />
+          ) : (
+            <button
+              onClick={() => setEditingConn('new')}
+              className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:text-gray-600 hover:border-gray-300 transition"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add connection
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

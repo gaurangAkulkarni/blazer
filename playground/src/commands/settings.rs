@@ -30,6 +30,19 @@ pub struct CustomSkill {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConnectionAlias {
+    pub id: String,
+    pub name: String,
+    /// DuckDB extension type: "postgres", "mysql", "sqlite", "httpfs", "spatial", etc.
+    pub ext_type: String,
+    /// Connection string (empty for non-DB extensions like httpfs/spatial)
+    #[serde(default)]
+    pub connection_string: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppSettings {
     pub active_provider: String,
     pub openai: ProviderSettings,
@@ -42,6 +55,8 @@ pub struct AppSettings {
     pub show_follow_up_chips: Option<bool>,
     #[serde(default = "default_context_history_limit")]
     pub context_history_limit: u32,
+    #[serde(default)]
+    pub connections: Vec<ConnectionAlias>,
 }
 
 fn default_context_history_limit() -> u32 { 20 }
@@ -77,6 +92,7 @@ impl Default for AppSettings {
             custom_skills: vec![],
             show_follow_up_chips: None,
             context_history_limit: 20,
+            connections: vec![],
         }
     }
 }

@@ -4,6 +4,7 @@ import { ProviderToggle } from './ProviderToggle'
 import { ApiKeyInput } from './ApiKeyInput'
 import { ModelSelector } from './ModelSelector'
 import { TemperatureSlider } from './TemperatureSlider'
+import { ExtensionsPanel } from './ExtensionsPanel'
 import { BUILT_IN_SKILLS } from '../../lib/skills'
 import type { AppSettings, CustomSkill } from '../../lib/types'
 import type { Skill } from '../../lib/skills'
@@ -11,7 +12,7 @@ import type { Skill } from '../../lib/skills'
 const OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']
 const CLAUDE_MODELS = ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-haiku-4-5-20251001']
 
-type Section = 'provider' | 'skills' | 'engine'
+type Section = 'provider' | 'skills' | 'engine' | 'extensions'
 
 interface Props {
   settings: AppSettings
@@ -583,6 +584,13 @@ export function SettingsPanel({ settings, onUpdate, onClose }: Props) {
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
       ),
     },
+    {
+      id: 'extensions',
+      label: 'Extensions',
+      icon: (
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>
+      ),
+    },
   ]
 
   return (
@@ -737,6 +745,8 @@ export function SettingsPanel({ settings, onUpdate, onClose }: Props) {
               )}
 
               {section === 'engine' && <QueryEngineSection />}
+
+              {section === 'extensions' && <ExtensionsPanel settings={settings} onUpdate={onUpdate} />}
             </div>
           </div>
         </div>
