@@ -1,5 +1,7 @@
 mod commands;
 
+use tauri::Manager;
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -19,6 +21,14 @@ pub fn run() {
             commands::duckdb::run_duckdb_query,
             commands::duckdb::export_to_parquet,
         ])
+        .setup(|app| {
+            // Set app icon at runtime so dev builds also show the new logo.
+            let icon = tauri::include_image!("icons/icon.png");
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_icon(icon);
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running blazer");
 }
