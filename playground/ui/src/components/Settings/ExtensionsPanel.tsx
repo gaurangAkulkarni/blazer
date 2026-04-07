@@ -374,9 +374,9 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 w-full min-w-0">
       {/* Tab switcher */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-full">
         {(['extensions', 'connections'] as Tab[]).map((t) => (
           <button
             key={t}
@@ -496,7 +496,7 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
 
       {/* ── Connections tab ──────────────────────────────────────────────────── */}
       {tab === 'connections' && (
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0 w-full">
           <p className="text-[11px] text-gray-400 leading-relaxed">
             Named connection aliases let you attach the same extension to multiple instances — e.g. separate "prod" and "staging" Postgres databases.
             Select connections per-chat using the <span className="font-medium text-gray-600">⊕</span> button in the chat input.
@@ -513,7 +513,7 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
           {connections.map((conn) => {
             const cat = CATALOGUE.find((c) => c.id === conn.ext_type)
             return (
-              <div key={conn.id}>
+              <div key={conn.id} className="min-w-0">
                 {editingConn === conn.id ? (
                   <ConnectionForm
                     initial={conn as ConnectionAlias}

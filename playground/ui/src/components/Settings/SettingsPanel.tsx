@@ -653,7 +653,7 @@ export function SettingsPanel({ settings, onUpdate, onClose }: Props) {
           </div>
 
           {/* Content area */}
-          <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 flex flex-col min-h-0 min-w-0">
             <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {SECTIONS.find((s) => s.id === section)?.label}
@@ -663,7 +663,7 @@ export function SettingsPanel({ settings, onUpdate, onClose }: Props) {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5">
               {section === 'provider' && (
                 <div className="space-y-5">
                   {/* Provider selector */}
