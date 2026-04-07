@@ -61,9 +61,11 @@ export async function resolveReadExpr(file: AttachedFile): Promise<string> {
     )
 
     if (res?.success && res.data.length > 0) {
+      // UNION ALL BY NAME aligns columns by name, filling missing columns with NULL.
+      // This handles supplier files that have slightly different column sets.
       const union = res.data
         .map(r => `SELECT * FROM ${fn}('${String(r['file'] ?? '').replace(/'/g, "''")}')`  )
-        .join('\nUNION ALL\n')
+        .join('\nUNION ALL BY NAME\n')
       // Wrap in a subquery so it can be used anywhere a table expression is expected
       return `(${union})`
     }
