@@ -76,15 +76,23 @@ function buildAgenticResultContext(
 }
 
 
+import { isMac } from './lib/platform'
+
 export default function App() {
   const { isDark, preference, toggleTheme } = useDarkMode()
   const { settings, updateSettings, loaded } = useSettings()
 
-  // Persist engine selections across restarts
-  const [chatEngine, setChatEngineState] = usePersistedState<Engine>('blazer_chat_engine', 'blazer')
-  const [consoleEngine, setConsoleEngineState] = usePersistedState<Engine>('blazer_console_engine', 'blazer')
-  const setChatEngine = useCallback((e: Engine) => setChatEngineState(e), [setChatEngineState])
-  const setConsoleEngine = useCallback((e: Engine) => setConsoleEngineState(e), [setConsoleEngineState])
+  // Persist engine selections across restarts; clamp to 'duckdb' on non-Mac
+  const [chatEngine, setChatEngineState] = usePersistedState<Engine>('blazer_chat_engine', isMac ? 'blazer' : 'duckdb')
+  const [consoleEngine, setConsoleEngineState] = usePersistedState<Engine>('blazer_console_engine', isMac ? 'blazer' : 'duckdb')
+  const setChatEngine = useCallback((e: Engine) => {
+    if (!isMac && e === 'blazer') return   // Blazer not available on non-Mac
+    setChatEngineState(e)
+  }, [setChatEngineState])
+  const setConsoleEngine = useCallback((e: Engine) => {
+    if (!isMac && e === 'blazer') return
+    setConsoleEngineState(e)
+  }, [setConsoleEngineState])
 
   const { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, hideLastMessage, loadedFiles, replaceFile, removeFile } = useChat(settings, chatEngine)
 
@@ -518,6 +526,7 @@ export default function App() {
     onToggleTheme: toggleTheme,
     onToggleAutoRun: toggleAutoRun,
     onToggleEngine: () => {
+      if (!isMac) return   // only available on macOS
       if (leftTab === 'console') {
         setConsoleEngine(consoleEngine === 'blazer' ? 'duckdb' : 'blazer')
       } else {
@@ -776,21 +785,23 @@ export default function App() {
           <div className={`${leftTab === 'chat' ? 'flex flex-col flex-1 min-h-0' : 'hidden'}`}>
             {/* Chat engine toolbar */}
             <div className="shrink-0 flex items-center gap-3 px-3 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/60">
-              <div className="flex items-center bg-gray-200/70 dark:bg-gray-700/70 rounded-lg p-0.5 gap-0.5">
-                {(['blazer', 'duckdb'] as Engine[]).map((e) => (
-                  <button
-                    key={e}
-                    onClick={() => setChatEngine(e)}
-                    className={`text-[11px] font-semibold px-2.5 py-1 rounded-md transition-all ${
-                      chatEngine === e
-                        ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                    }`}
-                  >
-                    {e === 'blazer' ? 'Blazer' : 'DuckDB'}
-                  </button>
-                ))}
-              </div>
+              {isMac && (
+                <div className="flex items-center bg-gray-200/70 dark:bg-gray-700/70 rounded-lg p-0.5 gap-0.5">
+                  {(['blazer', 'duckdb'] as Engine[]).map((e) => (
+                    <button
+                      key={e}
+                      onClick={() => setChatEngine(e)}
+                      className={`text-[11px] font-semibold px-2.5 py-1 rounded-md transition-all ${
+                        chatEngine === e
+                          ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                      }`}
+                    >
+                      {e === 'blazer' ? 'Blazer' : 'DuckDB'}
+                    </button>
+                  ))}
+                </div>
+              )}
               <span className="text-xs text-gray-400 dark:text-gray-500">
                 AI will generate{' '}
                 <span className="font-medium text-gray-600 dark:text-gray-400">

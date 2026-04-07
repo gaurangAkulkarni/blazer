@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { isMac } from '../../lib/platform'
 import { format as formatSqlLib } from 'sql-formatter'
 import type { QueryResult, AttachedFile, SnippetGroup } from '../../lib/types'
 import type { Engine } from '../../hooks/useChat'
@@ -264,22 +265,24 @@ export function ConsoleEditor({ onResult, engine, onEngineChange, replayRequest,
       <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/60">
         {/* Engine toggle + status */}
         <div className="flex items-center gap-3 min-w-0">
-          {/* Segmented control */}
-          <div className="flex items-center bg-gray-200/70 dark:bg-gray-700/70 rounded-lg p-0.5 gap-0.5">
-            {(['blazer', 'duckdb'] as Engine[]).map((e) => (
-              <button
-                key={e}
-                onClick={() => switchEngine(e)}
-                className={`text-[11px] font-semibold px-2.5 py-1 rounded-md transition-all ${
-                  engine === e
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                }`}
-              >
-                {e === 'blazer' ? 'Blazer' : 'DuckDB'}
-              </button>
-            ))}
-          </div>
+          {/* Segmented control — only show on macOS where both engines are available */}
+          {isMac && (
+            <div className="flex items-center bg-gray-200/70 dark:bg-gray-700/70 rounded-lg p-0.5 gap-0.5">
+              {(['blazer', 'duckdb'] as Engine[]).map((e) => (
+                <button
+                  key={e}
+                  onClick={() => switchEngine(e)}
+                  className={`text-[11px] font-semibold px-2.5 py-1 rounded-md transition-all ${
+                    engine === e
+                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  }`}
+                >
+                  {e === 'blazer' ? 'Blazer' : 'DuckDB'}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Status */}
           {running ? (
