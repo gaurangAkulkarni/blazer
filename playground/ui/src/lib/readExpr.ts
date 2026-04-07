@@ -3,14 +3,17 @@
  *
  * Build the DuckDB SQL table-expression for a given AttachedFile.
  *
- * For directory types (xlsx_dir, csv_dir) we need the actual file list because
- * DuckDB 1.1.x does NOT allow subqueries inside table function arguments
- * ("Binder Error: Table function cannot contain subqueries") and the glob
- * string pattern in read_xlsx('path/*.xlsx') only unions files in DuckDB ≥ 1.2.
+ * DuckDB 1.1.x (bundled) limitations for read_xlsx:
+ *   - read_xlsx('path/*.xlsx')            → reads only 1 file (no multi-file glob)
+ *   - read_xlsx((SELECT list(...) ...))   → Binder Error: subquery in table fn
+ *   - read_xlsx(VARCHAR[])               → Binder Error: no VARCHAR[] overload
  *
- * resolveReadExpr first runs a glob() query to enumerate every matching file,
- * then builds a literal array  read_xlsx(['f1','f2',...])  that works in all
- * bundled DuckDB versions.
+ * Only reliable approach in 1.1.x:
+ *   SELECT * FROM read_xlsx('f1') UNION ALL SELECT * FROM read_xlsx('f2') ...
+ *
+ * resolveReadExpr() first runs  SELECT file FROM glob(...)  to get every
+ * matching path, then returns the UNION ALL expression wrapped in a subquery:
+ *   (SELECT * FROM read_xlsx('f1') UNION ALL SELECT * FROM read_xlsx('f2') ...)
  */
 
 import { invoke } from '@tauri-apps/api/core'
@@ -20,7 +23,7 @@ function sqlEscape(p: string) {
   return p.replace(/'/g, "''")
 }
 
-/** Sync form — safe for parquet / csv / xlsx (single file). */
+/** Sync — safe for single-file types (csv, xlsx, parquet). */
 export function readExpr(file: AttachedFile): string {
   const ext = file.ext.toLowerCase()
   const p = sqlEscape(file.path)
@@ -28,16 +31,16 @@ export function readExpr(file: AttachedFile): string {
   if (ext === 'xlsx') return `read_xlsx('${p}')`
   if (ext === 'parquet_dir' || !ext || ext === '') return `read_parquet('${p}/**/*.parquet')`
   if (ext === 'parquet') return `read_parquet('${p}')`
-  // xlsx_dir / csv_dir — caller should use resolveReadExpr instead
+  // dirs: caller should use resolveReadExpr()
   if (ext === 'xlsx_dir') return `read_xlsx('${p}/*.xlsx')`
   if (ext === 'csv_dir') return `read_csv_auto('${p}/*.csv')`
   return `read_parquet('${p}')`
 }
 
 /**
- * Async form — for xlsx_dir / csv_dir, runs glob() first to get the real
- * file list and returns  read_xlsx(['f1','f2',...])  which works in DuckDB 1.1.x.
- * Falls back to the sync glob-string form on error.
+ * Async — for xlsx_dir / csv_dir, runs glob() to list files and returns a
+ * UNION ALL expression that reads every file individually.
+ * Wraps in a subquery so callers can use it as  SELECT … FROM <expr>.
  */
 export async function resolveReadExpr(file: AttachedFile): Promise<string> {
   const ext = file.ext.toLowerCase()
@@ -56,14 +59,16 @@ export async function resolveReadExpr(file: AttachedFile): Promise<string> {
       'run_duckdb_query',
       { sql: `SELECT file FROM glob('${p}/${pattern}') ORDER BY file` },
     )
-    if (res?.success && res.data.length > 0) {
-      const list = res.data
-        .map(r => `'${String(r['file'] ?? r['path'] ?? '').replace(/'/g, "''")}'`)
-        .join(', ')
-      return `${fn}([${list}])`
-    }
-  } catch { /* fall through to glob-string form */ }
 
-  // Fallback: simple glob string (works in DuckDB ≥ 1.2)
+    if (res?.success && res.data.length > 0) {
+      const union = res.data
+        .map(r => `SELECT * FROM ${fn}('${String(r['file'] ?? '').replace(/'/g, "''")}')`  )
+        .join('\nUNION ALL\n')
+      // Wrap in a subquery so it can be used anywhere a table expression is expected
+      return `(${union})`
+    }
+  } catch { /* fall through */ }
+
+  // Fallback: glob-string form (works in DuckDB ≥ 1.2, harmless to try)
   return `${fn}('${p}/${pattern}')`
 }
