@@ -1,83 +1,48 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { QuerySnippet, SnippetGroup } from '../lib/types'
-
-const SNIPPETS_KEY = 'blazer_snippets'
-const GROUPS_KEY   = 'blazer_snippet_groups'
-
-// ── Persistence ───────────────────────────────────────────────────────────────
-
-function loadSnippets(): QuerySnippet[] {
-  try {
-    const raw = localStorage.getItem(SNIPPETS_KEY)
-    return raw ? (JSON.parse(raw) as QuerySnippet[]) : []
-  } catch { return [] }
-}
-
-function saveSnippets(snippets: QuerySnippet[]): void {
-  try { localStorage.setItem(SNIPPETS_KEY, JSON.stringify(snippets)) } catch { /* quota */ }
-}
-
-function loadGroups(): SnippetGroup[] {
-  try {
-    const raw = localStorage.getItem(GROUPS_KEY)
-    return raw ? (JSON.parse(raw) as SnippetGroup[]) : []
-  } catch { return [] }
-}
-
-function saveGroups(groups: SnippetGroup[]): void {
-  try { localStorage.setItem(GROUPS_KEY, JSON.stringify(groups)) } catch { /* quota */ }
-}
-
-// ── Hook ──────────────────────────────────────────────────────────────────────
+import {
+  dbLoadSnippets, dbSaveSnippet, dbDeleteSnippet, dbClearSnippets,
+  dbLoadSnippetGroups, dbSaveSnippetGroup, dbDeleteSnippetGroup,
+} from '../lib/db'
 
 export function useSnippets() {
-  const [snippets, setSnippets] = useState<QuerySnippet[]>(loadSnippets)
-  const [groups,   setGroups  ] = useState<SnippetGroup[]>(loadGroups)
+  const [snippets, setSnippets] = useState<QuerySnippet[]>([])
+  const [groups,   setGroups  ] = useState<SnippetGroup[]>([])
 
-  // ── Snippet operations ────────────────────────────────────────────────────
+  useEffect(() => {
+    dbLoadSnippets().then(setSnippets).catch(console.error)
+    dbLoadSnippetGroups().then(setGroups).catch(console.error)
+  }, [])
 
-  const addSnippet = useCallback(
-    (snippet: Omit<QuerySnippet, 'id' | 'createdAt'>): QuerySnippet => {
-      const newSnippet: QuerySnippet = {
-        ...snippet,
-        id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        createdAt: Date.now(),
-      }
-      setSnippets((prev) => {
-        const next = [newSnippet, ...prev]
-        saveSnippets(next)
-        return next
-      })
-      return newSnippet
-    },
-    [],
-  )
+  const addSnippet = useCallback((snippet: Omit<QuerySnippet, 'id' | 'createdAt'>): QuerySnippet => {
+    const newSnippet: QuerySnippet = {
+      ...snippet,
+      id: `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      createdAt: Date.now(),
+    }
+    setSnippets((prev) => [newSnippet, ...prev])
+    dbSaveSnippet(newSnippet).catch(console.error)
+    return newSnippet
+  }, [])
 
-  const updateSnippet = useCallback(
-    (id: string, updates: Partial<Omit<QuerySnippet, 'id' | 'createdAt'>>) => {
-      setSnippets((prev) => {
-        const next = prev.map((s) => (s.id === id ? { ...s, ...updates } : s))
-        saveSnippets(next)
-        return next
-      })
-    },
-    [],
-  )
-
-  const removeSnippet = useCallback((id: string) => {
+  const updateSnippet = useCallback((id: string, updates: Partial<Omit<QuerySnippet, 'id' | 'createdAt'>>) => {
     setSnippets((prev) => {
-      const next = prev.filter((s) => s.id !== id)
-      saveSnippets(next)
+      const next = prev.map((s) => (s.id === id ? { ...s, ...updates } : s))
+      const updated = next.find((s) => s.id === id)
+      if (updated) dbSaveSnippet(updated).catch(console.error)
       return next
     })
   }, [])
 
-  const clearSnippets = useCallback(() => {
-    setSnippets([])
-    localStorage.removeItem(SNIPPETS_KEY)
+  const removeSnippet = useCallback((id: string) => {
+    setSnippets((prev) => prev.filter((s) => s.id !== id))
+    dbDeleteSnippet(id).catch(console.error)
   }, [])
 
-  // ── Group operations ──────────────────────────────────────────────────────
+  const clearSnippets = useCallback(() => {
+    setSnippets([])
+    dbClearSnippets().catch(console.error)
+  }, [])
 
   const addGroup = useCallback((name: string): SnippetGroup => {
     const newGroup: SnippetGroup = {
@@ -85,35 +50,29 @@ export function useSnippets() {
       name: name.trim(),
       createdAt: Date.now(),
     }
-    setGroups((prev) => {
-      const next = [...prev, newGroup]
-      saveGroups(next)
-      return next
-    })
+    setGroups((prev) => [...prev, newGroup])
+    dbSaveSnippetGroup(newGroup).catch(console.error)
     return newGroup
   }, [])
 
   const renameGroup = useCallback((id: string, name: string) => {
     setGroups((prev) => {
       const next = prev.map((g) => (g.id === id ? { ...g, name: name.trim() } : g))
-      saveGroups(next)
+      const updated = next.find((g) => g.id === id)
+      if (updated) dbSaveSnippetGroup(updated).catch(console.error)
       return next
     })
   }, [])
 
-  /** Delete a group and optionally move its snippets to the Default group. */
   const removeGroup = useCallback((id: string) => {
-    // Move all snippets in this group to Default (remove groupId)
     setSnippets((prev) => {
       const next = prev.map((s) => (s.groupId === id ? { ...s, groupId: undefined } : s))
-      saveSnippets(next)
+      next.filter((s) => s.groupId === undefined && prev.find((p) => p.id === s.id)?.groupId === id)
+          .forEach((s) => dbSaveSnippet(s).catch(console.error))
       return next
     })
-    setGroups((prev) => {
-      const next = prev.filter((g) => g.id !== id)
-      saveGroups(next)
-      return next
-    })
+    setGroups((prev) => prev.filter((g) => g.id !== id))
+    dbDeleteSnippetGroup(id).catch(console.error)
   }, [])
 
   return {

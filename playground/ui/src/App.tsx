@@ -17,6 +17,7 @@ import { useSchema } from './hooks/useSchema'
 import { useProfiler } from './hooks/useProfiler'
 import { useDarkMode } from './hooks/useDarkMode'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { usePersistedState } from './hooks/usePersistedState'
 import { SchemaExplorer } from './components/SchemaExplorer/SchemaExplorer'
 import type { Engine } from './hooks/useChat'
 import type { QueryResult, LeftTab, AttachedFile } from './lib/types'
@@ -74,34 +75,16 @@ function buildAgenticResultContext(
   return parts.join('\n\n')
 }
 
-// ── localStorage helpers ──────────────────────────────────────────────────────
-function persist<T>(key: string, value: T) {
-  try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* quota */ }
-}
-function restore<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as T) : fallback
-  } catch { return fallback }
-}
 
 export default function App() {
   const { isDark, preference, toggleTheme } = useDarkMode()
   const { settings, updateSettings, loaded } = useSettings()
 
   // Persist engine selections across restarts
-  const [chatEngine, setChatEngineState] = useState<Engine>(
-    () => restore<Engine>('blazer_chat_engine', 'blazer'),
-  )
-  const [consoleEngine, setConsoleEngineState] = useState<Engine>(
-    () => restore<Engine>('blazer_console_engine', 'blazer'),
-  )
-  const setChatEngine = useCallback((e: Engine) => {
-    setChatEngineState(e); persist('blazer_chat_engine', e)
-  }, [])
-  const setConsoleEngine = useCallback((e: Engine) => {
-    setConsoleEngineState(e); persist('blazer_console_engine', e)
-  }, [])
+  const [chatEngine, setChatEngineState] = usePersistedState<Engine>('blazer_chat_engine', 'blazer')
+  const [consoleEngine, setConsoleEngineState] = usePersistedState<Engine>('blazer_console_engine', 'blazer')
+  const setChatEngine = useCallback((e: Engine) => setChatEngineState(e), [setChatEngineState])
+  const setConsoleEngine = useCallback((e: Engine) => setConsoleEngineState(e), [setConsoleEngineState])
 
   const { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, hideLastMessage, loadedFiles, replaceFile, removeFile } = useChat(settings, chatEngine)
 
@@ -119,35 +102,27 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false)
 
   // Persist result history (max 30, strip data rows to save space)
-  const [resultHistory, setResultHistoryState] = useState<QueryResult[]>(
-    () => restore<QueryResult[]>('blazer_result_history', []),
-  )
+  const [resultHistory, setResultHistoryState] = usePersistedState<QueryResult[]>('blazer_result_history', [])
   const setResultHistory = useCallback((updater: QueryResult[] | ((prev: QueryResult[]) => QueryResult[])) => {
     setResultHistoryState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater
-      const capped = next.slice(0, 30)
-      persist('blazer_result_history', capped)
-      return capped
+      return next.slice(0, 30)
     })
-  }, [])
+  }, [setResultHistoryState])
 
   const [resultPaneOpen, setResultPaneOpen] = useState(true)
   const [leftTab, setLeftTab] = useState<LeftTab>('chat')
   const [aiPrefill, setAiPrefill] = useState('')
-  const [autoRun, setAutoRunState] = useState<boolean>(
-    () => restore<boolean>('blazer_autorun', false),
-  )
+  const [autoRun, setAutoRunState] = usePersistedState<boolean>('blazer_autorun', false)
   const toggleAutoRun = useCallback(() => {
-    setAutoRunState((v) => { persist('blazer_autorun', !v); return !v })
-  }, [])
+    setAutoRunState((v) => !v)
+  }, [setAutoRunState])
 
   // ── Agentic mode ─────────────────────────────────────────────────────────────
-  const [agenticMode, setAgenticModeState] = useState<boolean>(
-    () => restore<boolean>('blazer_agentic_mode', false),
-  )
+  const [agenticMode, setAgenticModeState] = usePersistedState<boolean>('blazer_agentic_mode', false)
   const toggleAgenticMode = useCallback(() => {
-    setAgenticModeState((v) => { persist('blazer_agentic_mode', !v); return !v })
-  }, [])
+    setAgenticModeState((v) => !v)
+  }, [setAgenticModeState])
 
   // Reactive state for UI
   const [agenticActive, setAgenticActive] = useState(false)
@@ -506,9 +481,7 @@ export default function App() {
   )
 
   // ── Resizable split pane ────────────────────────────────────────────────────
-  const [splitPct, setSplitPct] = useState<number>(
-    () => restore<number>('blazer_split_pct', 52),
-  )
+  const [splitPct, setSplitPct] = usePersistedState<number>('blazer_split_pct', 52)
   const splitContainerRef = useRef<HTMLDivElement>(null)
   const isDraggingRef = useRef(false)
 
@@ -531,8 +504,6 @@ export default function App() {
       document.body.style.userSelect = ''
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
-      // Persist after drag ends
-      setSplitPct((prev) => { persist('blazer_split_pct', prev); return prev })
     }
 
     window.addEventListener('mousemove', onMove)

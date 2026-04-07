@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import { dbGetAppState, dbSetAppState } from '../lib/db'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
-
-const STORAGE_KEY = 'blazer_theme'
 
 function getSystemDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -13,27 +12,25 @@ function applyDark(dark: boolean) {
 }
 
 export function useDarkMode() {
-  const [preference, setPreference] = useState<ThemePreference>(() => {
-    return (localStorage.getItem(STORAGE_KEY) as ThemePreference) ?? 'system'
-  })
+  const [preference, setPreference] = useState<ThemePreference>('system')
+  const [isDark, setIsDark] = useState(getSystemDark)
 
-  const [isDark, setIsDark] = useState(() => {
-    const pref = (localStorage.getItem(STORAGE_KEY) as ThemePreference) ?? 'system'
-    return pref === 'dark' || (pref === 'system' && getSystemDark())
-  })
+  // Load saved preference from SQLite on mount
+  useEffect(() => {
+    dbGetAppState<ThemePreference>('blazer_theme', 'system')
+      .then((pref) => setPreference(pref))
+      .catch(console.error)
+  }, [])
 
-  // Keep the <html class="dark"> in sync and watch the system media query
+  // Apply theme whenever preference changes
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
-
     const update = () => {
       const dark = preference === 'dark' || (preference === 'system' && mq.matches)
       setIsDark(dark)
       applyDark(dark)
     }
-
     update()
-
     if (preference === 'system') {
       mq.addEventListener('change', update)
       return () => mq.removeEventListener('change', update)
@@ -41,11 +38,10 @@ export function useDarkMode() {
   }, [preference])
 
   const setTheme = useCallback((pref: ThemePreference) => {
-    localStorage.setItem(STORAGE_KEY, pref)
     setPreference(pref)
+    dbSetAppState('blazer_theme', pref).catch(console.error)
   }, [])
 
-  /** Cycle: light → dark → system */
   const toggleTheme = useCallback(() => {
     setTheme(
       preference === 'light'  ? 'dark'   :
