@@ -281,11 +281,15 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
             } else {
               const fn =
                 f.ext === 'csv' || f.ext === 'tsv' ? `read_csv('${f.path}', auto_detect=true)` :
-                f.ext === 'xlsx' ? `read_xlsx('${f.path}')` :
-                f.ext === 'xlsx_dir' ? `read_xlsx((SELECT list(file) FROM glob('${f.path}/*.xlsx')))` :
+                f.ext === 'xlsx' ? `read_xlsx('${f.path}', all_varchar=true)` :
+                f.ext === 'xlsx_dir' ? `read_xlsx((SELECT list(file) FROM glob('${f.path}/*.xlsx')), all_varchar=true)` :
                 f.ext === 'csv_dir' ? `read_csv_auto((SELECT list(file) FROM glob('${f.path}/*.csv')))` :
                 `read_parquet('${f.path}')`
               fileContext += `- \`${fn}\`\n`
+              if (f.ext === 'xlsx' || f.ext === 'xlsx_dir') {
+                fileContext += `  NOTE: all_varchar=true is set — every column is VARCHAR to preserve mixed-type cells.\n`
+                fileContext += `  Use TRY_CAST(col AS DOUBLE) / TRY_CAST(col AS INTEGER) for numeric operations.\n`
+              }
             }
             if (f.columns && f.columns.length > 0) {
               fileContext += `  Columns: ${f.columns.map((c) => `\`${c}\``).join(', ')}\n`

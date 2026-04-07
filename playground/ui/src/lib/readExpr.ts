@@ -28,13 +28,14 @@ export function readExpr(file: AttachedFile): string {
   const ext = file.ext.toLowerCase()
   const p = sqlEscape(file.path)
   if (ext === 'csv' || ext === 'tsv') return `read_csv_auto('${p}')`
-  // ignore_errors=true: mixed-type cells (e.g. a text value in an otherwise-numeric column)
-  // become NULL instead of crashing — common in real-world Excel files.
-  if (ext === 'xlsx') return `read_xlsx('${p}', ignore_errors=true)`
+  // all_varchar=true: read every cell as text so mixed-type columns (e.g. a column that is
+  // mostly numbers but contains 'PUP912') are preserved in full — no data is silently NULLed.
+  // Callers can TRY_CAST(col AS DOUBLE) / TRY_CAST(col AS INTEGER) when numeric ops are needed.
+  if (ext === 'xlsx') return `read_xlsx('${p}', all_varchar=true)`
   if (ext === 'parquet_dir' || !ext || ext === '') return `read_parquet('${p}/**/*.parquet')`
   if (ext === 'parquet') return `read_parquet('${p}')`
   // dirs: caller should use resolveReadExpr()
-  if (ext === 'xlsx_dir') return `read_xlsx('${p}/*.xlsx', ignore_errors=true)`
+  if (ext === 'xlsx_dir') return `read_xlsx('${p}/*.xlsx', all_varchar=true)`
   if (ext === 'csv_dir') return `read_csv_auto('${p}/*.csv')`
   return `read_parquet('${p}')`
 }
@@ -65,7 +66,7 @@ export async function resolveReadExpr(file: AttachedFile): Promise<string> {
     if (res?.success && res.data.length > 0) {
       // UNION ALL BY NAME aligns columns by name, filling missing columns with NULL.
       // This handles supplier files that have slightly different column sets.
-      const xlsxOpts = isXlsx ? ', ignore_errors=true' : ''
+      const xlsxOpts = isXlsx ? ', all_varchar=true' : ''
       const union = res.data
         .map(r => `SELECT * FROM ${fn}('${String(r['file'] ?? '').replace(/'/g, "''")}' ${xlsxOpts})`)
         .join('\nUNION ALL BY NAME\n')
