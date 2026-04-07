@@ -367,15 +367,27 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
       if (opts?.activeConnections && opts.activeConnections.length > 0) {
         const connLines = opts.activeConnections.map((c) => {
           const safeName = c.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
-          const attachAs = c.connection_string ? ` — attached as \`${safeName}\`` : ''
-          const queryHint = c.connection_string
-            ? `Query with: SELECT * FROM ${safeName}.schema.tablename`
-            : `Use with: LOAD '${c.ext_type}'; then use its functions directly`
-          return `- **${c.name}** (${c.ext_type})${attachAs}\n  ${queryHint}${c.description ? `\n  ${c.description}` : ''}`
+
+          // DB extensions: ATTACHed → query via alias.schema.table
+          const isDbAttach = ['postgres', 'mysql', 'sqlite'].includes(c.ext_type)
+          // Path-based extensions: loaded but NOT attached → queried via scan function
+          const isPathScan = ['delta', 'iceberg'].includes(c.ext_type)
+
+          let queryHint: string
+          if (isDbAttach && c.connection_string) {
+            queryHint = `Attached as \`${safeName}\` — query with: SELECT * FROM ${safeName}.<schema>.<table>`
+          } else if (isPathScan && c.connection_string) {
+            const scanFn = c.ext_type === 'delta' ? 'delta_scan' : 'iceberg_scan'
+            queryHint = `Use: SELECT * FROM ${scanFn}('${c.connection_string}')\n  The extension is already loaded — use this exact path in ${scanFn}().`
+          } else {
+            queryHint = `Extension \`${c.ext_type}\` is loaded — use its native functions directly`
+          }
+
+          return `- **${c.name}** (${c.ext_type})\n  ${queryHint}${c.description ? `\n  Note: ${c.description}` : ''}`
         }).join('\n')
         apiMessages.push({
           role: 'system',
-          content: `## Active Database Connections\nThe following connections are pre-attached in DuckDB for this query:\n${connLines}`,
+          content: `## Active Connections / Extensions\nThe following are pre-loaded in DuckDB for this query:\n${connLines}`,
         })
       }
 
