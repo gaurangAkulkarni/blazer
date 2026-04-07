@@ -188,7 +188,8 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
   const handleAttachFolder = async () => {
     const result = await invoke<FileInfo | null>('open_folder_dialog').catch(() => null)
     if (!result) return
-    setPendingFiles((prev) => [...prev, { path: result.path, name: result.name, ext: 'parquet_dir' }])
+    // Use the ext detected by the backend (xlsx_dir / csv_dir / parquet_dir)
+    setPendingFiles((prev) => [...prev, { path: result.path, name: result.name, ext: result.ext }])
   }
 
   const convertFile = async (file: AttachedFile, onSuccess: (newFile: AttachedFile) => void) => {

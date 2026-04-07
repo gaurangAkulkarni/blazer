@@ -42,7 +42,10 @@ function readExpr(file: AttachedFile): string {
   const ext = file.ext.toLowerCase()
   const p = file.path.replace(/'/g, "''")
   if (ext === 'csv' || ext === 'tsv') return `read_csv_auto('${p}')`
-  if (!ext) return `read_parquet('${p}/**/*.parquet')`
+  if (ext === 'xlsx') return `read_xlsx('${p}')`
+  if (ext === 'xlsx_dir') return `read_xlsx('${p}/*.xlsx')`
+  if (ext === 'csv_dir') return `read_csv_auto('${p}/*.csv')`
+  if (!ext || ext === 'parquet_dir') return `read_parquet('${p}/**/*.parquet')`
   return `read_parquet('${p}')`
 }
 
