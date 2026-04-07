@@ -517,6 +517,13 @@ export default function App() {
     onToggleResultPane: () => setResultPaneOpen(v => !v),
     onToggleTheme: toggleTheme,
     onToggleAutoRun: toggleAutoRun,
+    onToggleEngine: () => {
+      if (leftTab === 'console') {
+        setConsoleEngine(consoleEngine === 'blazer' ? 'duckdb' : 'blazer')
+      } else {
+        setChatEngine(chatEngine === 'blazer' ? 'duckdb' : 'blazer')
+      }
+    },
     onClearMessages: clearMessages,
     onOpenPalette: () => setPaletteOpen(v => !v),
     isSettingsOpen: settingsOpen,

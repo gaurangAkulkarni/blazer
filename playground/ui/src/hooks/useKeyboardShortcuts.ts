@@ -7,6 +7,7 @@ export interface ShortcutHandlers {
   onToggleResultPane: () => void
   onToggleTheme: () => void
   onToggleAutoRun: () => void
+  onToggleEngine: () => void
   onClearMessages: () => void
   onOpenPalette: () => void
   isSettingsOpen: boolean
@@ -42,8 +43,9 @@ function isEditableTarget(e: KeyboardEvent): boolean {
  *   Mod+,        → Settings
  *   Mod+\        → Toggle result pane
  *   Mod+D        → Cycle dark/light/system theme
+ *   Mod+E        → Toggle engine on active tab (Blazer ↔ DuckDB)
  *   Mod+1–5      → Switch tabs
- *   Mod+Shift+X  → Toggle autorun
+ *   Mod+Shift+A  → Toggle autorun
  */
 export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
   // Keep a ref so the stable listener always reads the latest values
@@ -95,6 +97,13 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
       if (key === 'd' && !e.shiftKey) {
         e.preventDefault()
         h.onToggleTheme()
+        return
+      }
+
+      // ── Cmd/Ctrl+E → Toggle engine on active tab ─────────────
+      if (key === 'e' && !e.shiftKey) {
+        e.preventDefault()
+        h.onToggleEngine()
         return
       }
 
