@@ -11,8 +11,13 @@ interface ExtCatalogue {
   category: 'format' | 'database' | 'cloud' | 'analytics' | 'storage'
   needsConnection: boolean
   autoloaded?: boolean
+  /** Label shown above the connection/path field in the form */
+  connLabel?: string
   connPlaceholder?: string
+  /** Short one-line hint shown below the field */
   connHelp?: string
+  /** Longer usage tip shown in a callout — supports line breaks with \n */
+  connTip?: string
 }
 
 const CATALOGUE: ExtCatalogue[] = [
@@ -20,16 +25,36 @@ const CATALOGUE: ExtCatalogue[] = [
   { id: 'parquet', name: 'Parquet', description: 'Read and write Parquet files', category: 'format', needsConnection: false, autoloaded: true },
   { id: 'json', name: 'JSON', description: 'JSON read/write and extraction functions', category: 'format', needsConnection: false, autoloaded: true },
   { id: 'excel', name: 'Excel', description: 'Read .xlsx files directly with read_xlsx()', category: 'format', needsConnection: false },
-  { id: 'delta', name: 'Delta Lake', description: 'Query Delta Lake tables natively', category: 'format', needsConnection: false },
-  { id: 'iceberg', name: 'Apache Iceberg', description: 'Query Apache Iceberg tables natively', category: 'format', needsConnection: false },
-  { id: 'postgres', name: 'PostgreSQL', description: 'Attach and query Postgres databases directly', category: 'database', needsConnection: true, connPlaceholder: 'postgresql://user:pass@host:5432/dbname', connHelp: 'Standard PostgreSQL connection string' },
-  { id: 'mysql', name: 'MySQL', description: 'Attach and query MySQL databases directly', category: 'database', needsConnection: true, connPlaceholder: 'mysql://user:pass@host:3306/dbname', connHelp: 'Standard MySQL connection string' },
-  { id: 'sqlite', name: 'SQLite', description: 'Read and write SQLite database files', category: 'database', needsConnection: true, connPlaceholder: '/path/to/database.db', connHelp: 'Absolute path to your .db file' },
+  {
+    id: 'delta',
+    name: 'Delta Lake',
+    description: 'Query Delta Lake tables natively — works with Databricks, local Delta tables, S3 and Azure Data Lake paths',
+    category: 'format',
+    needsConnection: true,
+    connLabel: 'Table Path / URL',
+    connPlaceholder: 's3://my-bucket/tables/my_delta_table/',
+    connHelp: 'Path to the root of a Delta Lake table (S3, ADLS, GCS, or local)',
+    connTip: 'Databricks (Azure): abfss://container@account.dfs.core.windows.net/path/to/table\nDatabricks (AWS):  s3://bucket/path/to/table\nLocal:             /absolute/path/to/delta_table\n\nLoad the azure or aws extension first to supply credentials, then use delta_scan(\'<path>\') or just SELECT * FROM \'<path>\'.',
+  },
+  {
+    id: 'iceberg',
+    name: 'Apache Iceberg',
+    description: 'Query Apache Iceberg tables on S3, ADLS, GCS, or local storage',
+    category: 'format',
+    needsConnection: true,
+    connLabel: 'Table Path / URL',
+    connPlaceholder: 's3://my-bucket/warehouse/my_iceberg_table/',
+    connHelp: 'Path to the root of an Iceberg table (must contain a metadata/ directory)',
+    connTip: 'S3:    s3://bucket/warehouse/table_name\nADLS:  abfss://container@account.dfs.core.windows.net/warehouse/table\nLocal: /absolute/path/to/iceberg_table\n\nLoad the httpfs and aws/azure extensions first for cloud paths.',
+  },
+  { id: 'postgres', name: 'PostgreSQL', description: 'Attach and query Postgres databases directly', category: 'database', needsConnection: true, connLabel: 'Connection String', connPlaceholder: 'postgresql://user:pass@host:5432/dbname', connHelp: 'Standard PostgreSQL connection string' },
+  { id: 'mysql', name: 'MySQL', description: 'Attach and query MySQL databases directly', category: 'database', needsConnection: true, connLabel: 'Connection String', connPlaceholder: 'mysql://user:pass@host:3306/dbname', connHelp: 'Standard MySQL connection string' },
+  { id: 'sqlite', name: 'SQLite', description: 'Read and write SQLite database files', category: 'database', needsConnection: true, connLabel: 'File Path', connPlaceholder: '/absolute/path/to/database.db', connHelp: 'Absolute path to your .db or .sqlite file' },
   { id: 'spatial', name: 'Spatial', description: 'Geospatial types and PostGIS-style functions', category: 'analytics', needsConnection: false },
   { id: 'fts', name: 'Full-Text Search', description: 'Full-text search indexes via FTS5', category: 'analytics', needsConnection: false },
   { id: 'vss', name: 'Vector Search', description: 'Vector similarity search — cosine, L2 distance', category: 'analytics', needsConnection: false },
   { id: 'aws', name: 'AWS', description: 'AWS credential chain for S3 access', category: 'cloud', needsConnection: false },
-  { id: 'azure', name: 'Azure', description: 'Azure Blob Storage access', category: 'cloud', needsConnection: false },
+  { id: 'azure', name: 'Azure', description: 'Azure Blob Storage / ADLS Gen2 access', category: 'cloud', needsConnection: false },
 ]
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -106,18 +131,28 @@ function ConnectionForm({
       </div>
 
       {cat?.needsConnection && (
-        <div>
-          <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Connection String</label>
-          <input
-            type="text"
-            value={connStr}
-            onChange={(e) => setConnStr(e.target.value)}
-            placeholder={cat.connPlaceholder}
-            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 font-mono bg-white"
-            spellCheck={false}
-          />
-          {cat.connHelp && (
-            <p className="text-[11px] text-gray-400 mt-1">{cat.connHelp}</p>
+        <div className="space-y-2">
+          <div>
+            <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">
+              {cat.connLabel ?? 'Connection String'}
+            </label>
+            <input
+              type="text"
+              value={connStr}
+              onChange={(e) => setConnStr(e.target.value)}
+              placeholder={cat.connPlaceholder}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 font-mono bg-white"
+              spellCheck={false}
+            />
+            {cat.connHelp && (
+              <p className="text-[11px] text-gray-400 mt-1">{cat.connHelp}</p>
+            )}
+          </div>
+          {cat.connTip && (
+            <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2.5">
+              <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-1">Examples</p>
+              <pre className="text-[11px] text-blue-800 whitespace-pre-wrap leading-relaxed font-mono">{cat.connTip}</pre>
+            </div>
           )}
         </div>
       )}
