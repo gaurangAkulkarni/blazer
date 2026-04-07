@@ -635,7 +635,7 @@ export function SettingsPanel({ settings, onUpdate, onClose }: Props) {
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
 
-        <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-[740px] max-h-[85vh] flex overflow-hidden">
+        <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-[740px] h-[620px] flex overflow-hidden">
           {/* Left nav sidebar */}
           <div className="w-44 shrink-0 bg-gray-50 dark:bg-gray-800 border-r border-gray-100 dark:border-gray-700 flex flex-col p-3 gap-1">
             <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-3 pt-1 pb-2">
