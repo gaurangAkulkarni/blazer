@@ -405,15 +405,16 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
       // Duplication wastes tokens and can exceed context windows on local models
       apiMessages.push({ role: 'user', content: content })
 
+      const now = Date.now()
       const userMsg: ChatMessage = {
-        id: nextId(), role: 'user', content, timestamp: Date.now(),
+        id: nextId(), role: 'user', content, timestamp: now,
         attachedFiles: newAttachments,
         sentContext: apiMessages,
         agenticContinuation: opts?.agenticContinuation,
         agenticRunId: opts?.agenticRunId,
       }
       const assistantMsg: ChatMessage = {
-        id: nextId(), role: 'assistant', content: '', timestamp: Date.now(),
+        id: nextId(), role: 'assistant', content: '', timestamp: now + 1,
         agenticRunId: opts?.agenticRunId,
       }
 

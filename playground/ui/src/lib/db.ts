@@ -134,7 +134,7 @@ function safeJson<T>(raw: string): T | undefined {
 export async function dbLoadMessages(): Promise<ChatMessage[]> {
   const db = await getDb()
   const rows = await db.select<Record<string, unknown>[]>(
-    'SELECT * FROM messages ORDER BY timestamp ASC',
+    'SELECT * FROM messages ORDER BY timestamp ASC, rowid ASC',
   )
   return rows.map(rowToMessage)
 }
