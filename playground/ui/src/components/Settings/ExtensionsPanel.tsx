@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import type { AppSettings, ConnectionAlias } from '../../lib/types'
+import type { AppSettings, AzureAuthMethod, ConnectionAlias } from '../../lib/types'
 
 // ── Known extension catalogue ─────────────────────────────────────────────────
 
@@ -76,6 +76,34 @@ interface ExtensionStatus {
 
 // ── Connection Form ───────────────────────────────────────────────────────────
 
+const AZURE_AUTH_OPTIONS: { value: AzureAuthMethod; label: string; hint: string }[] = [
+  { value: 'none',               label: 'None (local / S3)',        hint: 'No Azure credentials — for local paths or S3 URIs.' },
+  { value: 'service_principal',  label: 'Service Principal (Entra ID)', hint: 'App registration with client secret — recommended for Databricks / production.' },
+  { value: 'account_key',        label: 'Storage Account Key',      hint: 'Paste the full Azure storage connection string from the Azure portal (Access keys → Connection string).' },
+  { value: 'sas',                label: 'SAS Token / URL',          hint: 'Paste a full SAS connection string: BlobEndpoint=https://…;SharedAccessSignature=sv=…' },
+  { value: 'azure_cli',          label: 'Azure CLI (az login)',      hint: 'Uses the credential from `az login` on this machine — zero secrets to paste.' },
+]
+
+function LabeledInput({ label, value, onChange, placeholder, mono = false, type = 'text' }: {
+  label: string; value: string; onChange: (v: string) => void
+  placeholder?: string; mono?: boolean; type?: string
+}) {
+  return (
+    <div>
+      <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
+        className={`w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white${mono ? ' font-mono' : ''}`}
+        spellCheck={false}
+      />
+    </div>
+  )
+}
+
 function ConnectionForm({
   initial,
   onSave,
@@ -90,37 +118,52 @@ function ConnectionForm({
   const [connStr, setConnStr] = useState(initial?.connection_string ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
 
+  // Azure credential state
+  const [azureAuth, setAzureAuth] = useState<AzureAuthMethod>(initial?.azure_auth ?? 'none')
+  const [azureTenantId, setAzureTenantId] = useState(initial?.azure_tenant_id ?? '')
+  const [azureClientId, setAzureClientId] = useState(initial?.azure_client_id ?? '')
+  const [azureClientSecret, setAzureClientSecret] = useState(initial?.azure_client_secret ?? '')
+  const [azureStorageConnStr, setAzureStorageConnStr] = useState(initial?.azure_storage_connection_string ?? '')
+
   const cat = CATALOGUE.find((c) => c.id === extType)
+  const isPathScan = ['delta', 'iceberg'].includes(extType)
+  const authHint = AZURE_AUTH_OPTIONS.find((o) => o.value === azureAuth)?.hint
 
   const save = () => {
     if (!name.trim()) return
-    onSave({
+    const base: ConnectionAlias = {
       id: initial?.id ?? crypto.randomUUID(),
       name: name.trim(),
       ext_type: extType,
       connection_string: connStr.trim(),
       description: description.trim() || undefined,
-    })
+    }
+    if (isPathScan && azureAuth !== 'none') {
+      base.azure_auth = azureAuth
+      if (azureAuth === 'service_principal') {
+        base.azure_tenant_id = azureTenantId.trim()
+        base.azure_client_id = azureClientId.trim()
+        base.azure_client_secret = azureClientSecret.trim()
+      } else if (azureAuth === 'account_key' || azureAuth === 'sas') {
+        base.azure_storage_connection_string = azureStorageConnStr.trim()
+      }
+    }
+    onSave(base)
   }
+
+  const isValid = name.trim() && (!cat?.needsConnection || connStr.trim()) &&
+    !(isPathScan && azureAuth === 'service_principal' && (!azureTenantId.trim() || !azureClientId.trim() || !azureClientSecret.trim())) &&
+    !(isPathScan && (azureAuth === 'account_key' || azureAuth === 'sas') && !azureStorageConnStr.trim())
 
   return (
     <div className="border border-gray-200 rounded-xl p-4 space-y-3 bg-gray-50">
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. prod-postgres"
-            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white"
-          />
-        </div>
+        <LabeledInput label="Name" value={name} onChange={setName} placeholder="e.g. prod-delta" />
         <div>
           <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Extension</label>
           <select
             value={extType}
-            onChange={(e) => setExtType(e.target.value)}
+            onChange={(e) => { setExtType(e.target.value); setAzureAuth('none') }}
             className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white"
           >
             {CATALOGUE.map((c) => (
@@ -157,13 +200,92 @@ function ConnectionForm({
         </div>
       )}
 
+      {/* ── Azure credentials (delta / iceberg only) ──────────────────────── */}
+      {isPathScan && (
+        <div className="space-y-2.5 border-t border-gray-200 pt-3">
+          <div className="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">Azure Credentials</span>
+            <span className="text-[10px] text-gray-400">(for ADLS Gen2 / abfss:// paths)</span>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Auth Method</label>
+            <select
+              value={azureAuth}
+              onChange={(e) => setAzureAuth(e.target.value as AzureAuthMethod)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white"
+            >
+              {AZURE_AUTH_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            {authHint && azureAuth !== 'none' && (
+              <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">{authHint}</p>
+            )}
+          </div>
+
+          {azureAuth === 'service_principal' && (
+            <div className="space-y-2 rounded-lg bg-amber-50 border border-amber-100 p-3">
+              <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide">Service Principal (Entra ID)</p>
+              <LabeledInput label="Tenant ID" value={azureTenantId} onChange={setAzureTenantId}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" mono />
+              <LabeledInput label="Client ID (App ID)" value={azureClientId} onChange={setAzureClientId}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" mono />
+              <LabeledInput label="Client Secret" value={azureClientSecret} onChange={setAzureClientSecret}
+                placeholder="your-client-secret-value" type="password" mono />
+              <p className="text-[10px] text-amber-600 leading-relaxed">
+                In Azure Portal → App registrations → your app → Certificates &amp; secrets → New client secret.
+                Assign <strong>Storage Blob Data Reader</strong> role on the storage account.
+              </p>
+            </div>
+          )}
+
+          {(azureAuth === 'account_key' || azureAuth === 'sas') && (
+            <div className="space-y-2 rounded-lg bg-amber-50 border border-amber-100 p-3">
+              <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide">
+                {azureAuth === 'account_key' ? 'Storage Connection String' : 'SAS Connection String'}
+              </p>
+              <div>
+                <input
+                  type="password"
+                  value={azureStorageConnStr}
+                  onChange={(e) => setAzureStorageConnStr(e.target.value)}
+                  placeholder={azureAuth === 'account_key'
+                    ? 'DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net'
+                    : 'BlobEndpoint=https://account.blob.core.windows.net;SharedAccessSignature=sv=...'}
+                  autoComplete="off"
+                  className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white font-mono"
+                  spellCheck={false}
+                />
+              </div>
+              <p className="text-[10px] text-amber-600 leading-relaxed">
+                {azureAuth === 'account_key'
+                  ? 'Find in Azure Portal → Storage account → Access keys → Connection string.'
+                  : 'Generate in Azure Portal → Storage account → Shared access signature. Select Blob service.'}
+              </p>
+            </div>
+          )}
+
+          {azureAuth === 'azure_cli' && (
+            <div className="rounded-lg bg-green-50 border border-green-100 px-3 py-2.5">
+              <p className="text-[10px] font-semibold text-green-700 uppercase tracking-wide mb-1">Azure CLI Auth</p>
+              <p className="text-[11px] text-green-700 leading-relaxed">
+                Run <code className="font-mono bg-green-100 px-1 rounded">az login</code> in your terminal before querying.
+                No secrets stored — DuckDB will use your local Azure CLI session automatically.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div>
         <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wide mb-1 block">Description <span className="normal-case font-normal">(optional)</span></label>
         <input
           type="text"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="e.g. Production database — read-only replica"
+          placeholder="e.g. Databricks bronze layer — read-only"
           className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white"
         />
       </div>
@@ -171,7 +293,7 @@ function ConnectionForm({
       <div className="flex gap-2 pt-1">
         <button
           onClick={save}
-          disabled={!name.trim() || (cat?.needsConnection && !connStr.trim())}
+          disabled={!isValid}
           className="flex-1 bg-gray-900 text-white text-sm rounded-lg py-2 font-medium hover:bg-gray-700 disabled:opacity-30 transition"
         >
           {initial ? 'Save changes' : 'Add connection'}
@@ -202,7 +324,7 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
   const [installing, setInstalling] = useState<Record<string, boolean>>({})
   const [installResults, setInstallResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
   const [loadingStatuses, setLoadingStatuses] = useState(false)
-  const [editingConn, setEditingConn] = useState<ConnectionAlias | 'new' | null>(null)
+  const [editingConn, setEditingConn] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
   const connections = settings.connections ?? []
@@ -413,6 +535,12 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
                       {conn.connection_string && (
                         <p className="text-[11px] font-mono text-gray-400 mt-0.5 truncate">
                           {conn.connection_string.replace(/:([^:@]+)@/, ':●●●●@')}
+                        </p>
+                      )}
+                      {conn.azure_auth && conn.azure_auth !== 'none' && (
+                        <p className="text-[10px] text-amber-600 mt-0.5 flex items-center gap-1">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                          {AZURE_AUTH_OPTIONS.find((o) => o.value === conn.azure_auth)?.label ?? conn.azure_auth}
                         </p>
                       )}
                     </div>

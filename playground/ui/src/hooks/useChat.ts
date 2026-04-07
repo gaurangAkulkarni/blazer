@@ -378,7 +378,34 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
             queryHint = `Attached as \`${safeName}\` — query with: SELECT * FROM ${safeName}.<schema>.<table>`
           } else if (isPathScan && c.connection_string) {
             const scanFn = c.ext_type === 'delta' ? 'delta_scan' : 'iceberg_scan'
-            queryHint = `Use: SELECT * FROM ${scanFn}('${c.connection_string}')\n  The extension is already loaded — use this exact path in ${scanFn}().`
+            // Build Azure credential SET statements if configured
+            let credBlock = ''
+            if (c.azure_auth === 'service_principal' && c.azure_tenant_id && c.azure_client_id && c.azure_client_secret) {
+              credBlock = [
+                `  BEFORE querying, you MUST execute these credential statements first (as separate SQL):`,
+                `  SET azure_tenant_id='${c.azure_tenant_id}';`,
+                `  SET azure_client_id='${c.azure_client_id}';`,
+                `  SET azure_client_secret='${c.azure_client_secret}';`,
+              ].join('\n')
+            } else if (c.azure_auth === 'account_key' && c.azure_storage_connection_string) {
+              credBlock = [
+                `  BEFORE querying, you MUST execute this credential statement first:`,
+                `  SET azure_storage_connection_string='${c.azure_storage_connection_string}';`,
+              ].join('\n')
+            } else if (c.azure_auth === 'sas' && c.azure_storage_connection_string) {
+              credBlock = [
+                `  BEFORE querying, you MUST execute this credential statement first:`,
+                `  SET azure_storage_connection_string='${c.azure_storage_connection_string}';`,
+              ].join('\n')
+            } else if (c.azure_auth === 'azure_cli') {
+              credBlock = `  BEFORE querying, you MUST execute: SET azure_use_azure_cli=true;`
+            }
+            queryHint = [
+              `Use: SELECT * FROM ${scanFn}('${c.connection_string}')`,
+              `  The extension is already loaded — use this exact path in ${scanFn}().`,
+              credBlock || '',
+              credBlock ? `  Always include the credential SET statement(s) as separate SQL statements BEFORE the ${scanFn}() query.` : '',
+            ].filter(Boolean).join('\n')
           } else {
             queryHint = `Extension \`${c.ext_type}\` is loaded — use its native functions directly`
           }

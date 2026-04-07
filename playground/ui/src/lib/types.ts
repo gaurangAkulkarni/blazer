@@ -67,12 +67,25 @@ export interface CustomSkill {
   prompt: string
 }
 
+/** How to authenticate against Azure Storage for Delta Lake / Iceberg on ADLS Gen2 */
+export type AzureAuthMethod = 'none' | 'service_principal' | 'account_key' | 'sas' | 'azure_cli'
+
 export interface ConnectionAlias {
   id: string
   name: string           // user-given label, e.g. "prod-postgres"
-  ext_type: string       // DuckDB extension: "postgres", "mysql", "sqlite", "httpfs", "spatial", etc.
-  connection_string: string  // e.g. "postgresql://user:pass@host/db" — empty for non-DB extensions
+  ext_type: string       // DuckDB extension: "postgres", "mysql", "sqlite", "delta", "iceberg", etc.
+  connection_string: string  // table path for delta/iceberg; connection URI for DB extensions
   description?: string
+  // ── Azure credentials (delta / iceberg on ADLS Gen2) ──────────────────────
+  azure_auth?: AzureAuthMethod
+  /** Service principal fields */
+  azure_tenant_id?: string
+  azure_client_id?: string
+  azure_client_secret?: string
+  /** Account key — used to build azure_storage_connection_string */
+  azure_account_key?: string
+  /** Full Azure storage connection string or SAS URL (account_key or sas auth) */
+  azure_storage_connection_string?: string
 }
 
 export interface ProviderSettings {
