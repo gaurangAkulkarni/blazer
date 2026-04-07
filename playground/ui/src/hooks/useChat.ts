@@ -545,25 +545,32 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
     setLoadedFilesState([])
   }, [])
 
-  /** Update fields on the last assistant message (e.g. strip DONE, store plan steps). */
+  /** Update fields on the last assistant message (e.g. strip DONE, store plan steps).
+   *  Writes to DB immediately — bypasses the debounce — so the patched state
+   *  is always persisted before the next render cycle. */
   const patchLastMessage = useCallback((patch: Partial<ChatMessage>) => {
-    setMessages((prev) => {
+    setMessagesState((prev) => {
       const updated = [...prev]
       const last = updated[updated.length - 1]
       if (last?.role === 'assistant') {
-        updated[updated.length - 1] = { ...last, ...patch }
+        const patched = { ...last, ...patch }
+        updated[updated.length - 1] = patched
+        dbSaveMessage(patched).catch(console.error)   // immediate, no debounce
       }
       return updated
     })
   }, [])
 
-  /** Hide the last assistant message by marking it as an agentic continuation (not shown in UI). */
+  /** Hide the last assistant message by marking it as an agentic continuation (not shown in UI).
+   *  Writes to DB immediately for the same reason as patchLastMessage. */
   const hideLastMessage = useCallback(() => {
-    setMessages((prev) => {
+    setMessagesState((prev) => {
       const updated = [...prev]
       const last = updated[updated.length - 1]
       if (last?.role === 'assistant') {
-        updated[updated.length - 1] = { ...last, agenticContinuation: true }
+        const hidden = { ...last, agenticContinuation: true }
+        updated[updated.length - 1] = hidden
+        dbSaveMessage(hidden).catch(console.error)    // immediate, no debounce
       }
       return updated
     })
