@@ -1,8 +1,13 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type { ChatMessage, AppSettings, AttachedFile, QueryResult, ConnectionAlias } from '../lib/types'
 import { resolveSkillPrompts, ENGINE_SKILL_IDS } from '../lib/skills'
+import {
+  dbLoadMessages, dbSaveMessage, dbClearMessages,
+  dbLoadFiles, dbSaveFile, dbDeleteFile, dbClearFiles,
+  migrateFromLocalStorage,
+} from '../lib/db'
 
 export type Engine = 'blazer' | 'duckdb'
 
@@ -161,59 +166,49 @@ function splitMultiStatementBlocks(markdown: string): string {
   return out.join('\n')
 }
 
-// ── Persistence helpers ───────────────────────────────────────────────────────
-const MSGS_KEY  = 'blazer_chat_messages'
-const FILES_KEY = 'blazer_loaded_files'
-const MAX_MESSAGES = 100
-
-function saveMessages(msgs: ChatMessage[]) {
-  try {
-    // Strip large data arrays from inline queryResults to keep storage compact.
-    // The content text and metadata are preserved; raw rows are omitted.
-    const slim = msgs.slice(-MAX_MESSAGES).map((m) => ({
-      ...m,
-      queryResults: m.queryResults?.map((r) => ({ ...r, data: [] })),
-    }))
-    localStorage.setItem(MSGS_KEY, JSON.stringify(slim))
-  } catch { /* quota exceeded — skip */ }
-}
-
-function loadMessages(): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(MSGS_KEY)
-    return raw ? (JSON.parse(raw) as ChatMessage[]) : []
-  } catch { return [] }
-}
-
-function saveFiles(files: AttachedFile[]) {
-  try { localStorage.setItem(FILES_KEY, JSON.stringify(files)) } catch { /* skip */ }
-}
-
-function loadFiles(): AttachedFile[] {
-  try {
-    const raw = localStorage.getItem(FILES_KEY)
-    return raw ? (JSON.parse(raw) as AttachedFile[]) : []
-  } catch { return [] }
-}
-
 export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
-  const [messages, setMessagesState] = useState<ChatMessage[]>(loadMessages)
+  const [messages, setMessagesState] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
-  const [loadedFiles, setLoadedFilesState] = useState<AttachedFile[]>(loadFiles)
+  const [loadedFiles, setLoadedFilesState] = useState<AttachedFile[]>([])
 
-  // Wrap setters so every mutation also persists to localStorage
+  // Debounce timer — DB writes fire 400 ms after the last setMessages call so
+  // rapid streaming chunks don't hammer SQLite.
+  const dbSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const scheduleSave = useCallback((msgs: ChatMessage[]) => {
+    if (dbSaveTimerRef.current) clearTimeout(dbSaveTimerRef.current)
+    dbSaveTimerRef.current = setTimeout(() => {
+      // Only upsert the two most recent messages (the user+assistant pair from
+      // the current turn).  Older messages are already persisted.
+      const tail = msgs.slice(-2)
+      tail.forEach((m) => dbSaveMessage(m).catch(console.error))
+    }, 400)
+  }, [])
+
+  // Load persisted data from SQLite on first mount (also runs legacy migration).
+  useEffect(() => {
+    migrateFromLocalStorage()
+      .then(() => dbLoadMessages())
+      .then((msgs) => setMessagesState(msgs))
+      .catch(console.error)
+
+    dbLoadFiles()
+      .then((files) => setLoadedFilesState(files))
+      .catch(console.error)
+  }, [])
+
+  // Wrap setters: update React state + schedule a DB write.
   const setMessages = useCallback((updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
     setMessagesState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater
-      saveMessages(next)
+      scheduleSave(next)
       return next
     })
-  }, [])
+  }, [scheduleSave])
 
   const setLoadedFiles = useCallback((updater: AttachedFile[] | ((prev: AttachedFile[]) => AttachedFile[])) => {
     setLoadedFilesState((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater
-      saveFiles(next)
       return next
     })
   }, [])
@@ -224,15 +219,20 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
   const addFiles = useCallback((files: AttachedFile[]) => {
     setLoadedFiles((prev) => {
       const existing = new Set(prev.map((f) => f.path))
-      return [...prev, ...files.filter((f) => !existing.has(f.path))]
+      const toAdd = files.filter((f) => !existing.has(f.path))
+      toAdd.forEach((f) => dbSaveFile(f).catch(console.error))
+      return [...prev, ...toAdd]
     })
   }, [])
 
   const removeFile = useCallback((path: string) => {
+    dbDeleteFile(path).catch(console.error)
     setLoadedFiles((prev) => prev.filter((f) => f.path !== path))
   }, [])
 
   const replaceFile = useCallback((oldPath: string, newFile: AttachedFile) => {
+    dbDeleteFile(oldPath).catch(console.error)
+    dbSaveFile(newFile).catch(console.error)
     setLoadedFiles((prev) => prev.map((f) => (f.path === oldPath ? newFile : f)))
   }, [])
 
@@ -538,7 +538,12 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
     [messages, settings, loadedFiles, addFiles, engine],
   )
 
-  const clearMessages = useCallback(() => setMessages([]), [])
+  const clearMessages = useCallback(() => {
+    dbClearMessages().catch(console.error)
+    dbClearFiles().catch(console.error)
+    setMessagesState([])
+    setLoadedFilesState([])
+  }, [])
 
   /** Update fields on the last assistant message (e.g. strip DONE, store plan steps). */
   const patchLastMessage = useCallback((patch: Partial<ChatMessage>) => {
