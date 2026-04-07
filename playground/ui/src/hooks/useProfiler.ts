@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import type { AttachedFile } from '../lib/types'
+import { resolveReadExpr } from '../lib/readExpr'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -38,16 +39,7 @@ export interface FileProfile {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function readExpr(file: AttachedFile): string {
-  const ext = file.ext.toLowerCase()
-  const p = file.path.replace(/'/g, "''")
-  if (ext === 'csv' || ext === 'tsv') return `read_csv_auto('${p}')`
-  if (ext === 'xlsx') return `read_xlsx('${p}')`
-  if (ext === 'xlsx_dir') return `read_xlsx((SELECT list(file) FROM glob('${p}/*.xlsx')))`
-  if (ext === 'csv_dir') return `read_csv_auto((SELECT list(file) FROM glob('${p}/*.csv')))`
-  if (!ext || ext === 'parquet_dir') return `read_parquet('${p}/**/*.parquet')`
-  return `read_parquet('${p}')`
-}
+// readExpr is replaced by resolveReadExpr from lib/readExpr (async, handles xlsx_dir/csv_dir)
 
 function isNumericType(t: string): boolean {
   return /INT|BIGINT|HUGEINT|FLOAT|DOUBLE|DECIMAL|REAL|NUMERIC|TINYINT|SMALLINT/i.test(t)
@@ -79,7 +71,7 @@ export function useProfiler() {
     }))
 
     const t0 = Date.now()
-    const expr = readExpr(file)
+    const expr = await resolveReadExpr(file)
 
     try {
       // ── Phase 1: SUMMARIZE ───────────────────────────────────────────────

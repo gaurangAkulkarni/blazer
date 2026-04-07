@@ -1,23 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import type { AttachedFile } from '../lib/types'
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function sqlEscape(path: string) {
-  return path.replace(/'/g, "''")
-}
-
-function readExpr(file: AttachedFile): string {
-  const ext = file.ext.toLowerCase()
-  const p = sqlEscape(file.path)
-  if (ext === 'csv' || ext === 'tsv') return `read_csv_auto('${p}')`
-  if (ext === 'xlsx') return `read_xlsx('${p}')`
-  if (ext === 'xlsx_dir') return `read_xlsx((SELECT list(file) FROM glob('${p}/*.xlsx')))`
-  if (ext === 'csv_dir') return `read_csv_auto((SELECT list(file) FROM glob('${p}/*.csv')))`
-  if (!ext || ext === 'parquet_dir') return `read_parquet('${p}/**/*.parquet')`
-  return `read_parquet('${p}')`
-}
+import { resolveReadExpr } from '../lib/readExpr'
 
 /** Build a WHERE clause that ILIKE-searches every column */
 function buildWhere(columns: ColumnInfo[], term: string): string {
@@ -96,10 +80,9 @@ export function DataExplorer({ file, onClose }: Props) {
     setSearchRows(null)
     setSearchTotal(null)
 
-    const expr = readExpr(file)
-
     async function load() {
       try {
+        const expr = await resolveReadExpr(file)
         const [descRes, dataRes, cntRes] = await Promise.all([
           invoke<{ success: boolean; data: Record<string, unknown>[]; error?: string }>(
             'run_duckdb_query',
@@ -155,7 +138,7 @@ export function DataExplorer({ file, onClose }: Props) {
     setSearchError(null)
 
     const timer = setTimeout(async () => {
-      const expr = readExpr(file)
+      const expr = await resolveReadExpr(file)
       const where = buildWhere(columns, term)
 
       try {

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import type { AttachedFile } from '../lib/types'
+import { resolveReadExpr } from '../lib/readExpr'
 
 export interface ColumnInfo {
   name: string
@@ -17,20 +18,7 @@ export interface FileSchema {
   error?: string
 }
 
-function sqlEscape(path: string) {
-  return path.replace(/'/g, "''")
-}
-
-function readExpr(file: AttachedFile): string {
-  const ext = file.ext.toLowerCase()
-  const p = sqlEscape(file.path)
-  if (ext === 'csv' || ext === 'tsv') return `read_csv_auto('${p}')`
-  if (ext === 'xlsx') return `read_xlsx('${p}')`
-  if (ext === 'xlsx_dir') return `read_xlsx((SELECT list(file) FROM glob('${p}/*.xlsx')))`
-  if (ext === 'csv_dir') return `read_csv_auto((SELECT list(file) FROM glob('${p}/*.csv')))`
-  if (ext === 'parquet_dir' || !ext || ext === '') return `read_parquet('${p}/**/*.parquet')`
-  return `read_parquet('${p}')`
-}
+// readExpr replaced by resolveReadExpr from lib/readExpr (async, handles xlsx_dir/csv_dir)
 
 export function useSchema() {
   const [schemas, setSchemas] = useState<Record<string, FileSchema>>({})
@@ -46,7 +34,7 @@ export function useSchema() {
     }))
 
     try {
-      const expr = readExpr(file)
+      const expr = await resolveReadExpr(file)
 
       // Column names + types
       const descResult = await invoke<{ success: boolean; data: Record<string, unknown>[]; error?: string }>(
