@@ -64,6 +64,10 @@ export function DataExplorer({ file, onClose }: Props) {
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
 
+  // Parquet export state
+  const [exporting, setExporting] = useState(false)
+  const [exportMsg, setExportMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Displayed rows: searchRows when filter active, else baseRows
@@ -313,6 +317,48 @@ export function DataExplorer({ file, onClose }: Props) {
               </button>
             )}
           </div>
+
+          {/* Export to Parquet (xlsx / xlsx_dir only) */}
+          {(file.ext === 'xlsx' || file.ext === 'xlsx_dir') && (
+            <div className="shrink-0 flex items-center gap-1.5">
+              {exportMsg && (
+                <span className={`text-[11px] font-medium ${exportMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
+                  {exportMsg.text}
+                </span>
+              )}
+              <button
+                onClick={async () => {
+                  setExporting(true)
+                  setExportMsg(null)
+                  try {
+                    const outPath = file.ext === 'xlsx'
+                      ? file.path.replace(/\.xlsx$/i, '.parquet')
+                      : `${file.path}.parquet`
+                    const readExprStr = await resolveReadExpr(file)
+                    const sql = `COPY ${readExprStr} TO '${outPath.replace(/'/g, "''")}' (FORMAT PARQUET)`
+                    const res = await invoke<{ success: boolean; error?: string }>('run_duckdb_query', { sql })
+                    if (!res.success) throw new Error(res.error ?? 'Export failed')
+                    const name = outPath.split('/').pop() ?? outPath
+                    setExportMsg({ ok: true, text: `Saved as ${name}` })
+                  } catch (e) {
+                    setExportMsg({ ok: false, text: String(e).slice(0, 80) })
+                  } finally {
+                    setExporting(false)
+                  }
+                }}
+                disabled={exporting || loading}
+                title={file.ext === 'xlsx_dir' ? 'Merge all xlsx files and save as a single Parquet file' : 'Save as Parquet file'}
+                className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 disabled:opacity-40 transition"
+              >
+                {exporting ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                )}
+                {exporting ? 'Exporting…' : '→ Parquet'}
+              </button>
+            </div>
+          )}
 
           {/* Close */}
           <button

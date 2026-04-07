@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { DataExplorer } from '../DataExplorer'
 import type { AttachedFile, ConnectionAlias } from '../../lib/types'
 import type { Skill } from '../../lib/skills'
+import { resolveReadExpr } from '../../lib/readExpr'
 
 interface FileInfo {
   path: string
@@ -195,10 +196,28 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
   const convertFile = async (file: AttachedFile, onSuccess: (newFile: AttachedFile) => void) => {
     setConverting((prev) => new Set(prev).add(file.path))
     try {
-      const newPath = await invoke<string>('convert_to_parquet', { csvPath: file.path })
-      const parts = newPath.split('/')
-      const newFile: AttachedFile = { path: newPath, name: parts[parts.length - 1], ext: 'parquet' }
-      onSuccess(newFile)
+      const ext = file.ext.toLowerCase()
+
+      if (ext === 'xlsx' || ext === 'xlsx_dir') {
+        // Build output path: for single xlsx replace extension; for dir add .parquet next to folder
+        const outPath = ext === 'xlsx'
+          ? file.path.replace(/\.xlsx$/i, '.parquet')
+          : `${file.path}.parquet`
+
+        // Resolve the read expression (handles UNION ALL for xlsx_dir)
+        const readExprStr = await resolveReadExpr(file)
+        const sql = `COPY ${readExprStr} TO '${outPath.replace(/'/g, "''")}' (FORMAT PARQUET)`
+        const res = await invoke<{ success: boolean; error?: string }>('run_duckdb_query', { sql })
+        if (!res.success) throw new Error(res.error ?? 'Conversion failed')
+
+        const parts = outPath.split('/')
+        onSuccess({ path: outPath, name: parts[parts.length - 1], ext: 'parquet' })
+      } else {
+        // CSV / TSV — use existing Rust command (uses Polars)
+        const newPath = await invoke<string>('convert_to_parquet', { csvPath: file.path })
+        const parts = newPath.split('/')
+        onSuccess({ path: newPath, name: parts[parts.length - 1], ext: 'parquet' })
+      }
     } catch (e: any) {
       alert(`Conversion failed: ${e}`)
     } finally {
@@ -228,8 +247,8 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
       >
         {f.name}
       </button>
-      {onConvert && (f.ext === 'csv' || f.ext === 'tsv') && (
-        <button onClick={onConvert} disabled={converting.has(f.path)} className="opacity-60 hover:opacity-100 ml-0.5 text-blue-600 hover:text-blue-800 disabled:opacity-30" title="Convert to Parquet">
+      {onConvert && (f.ext === 'csv' || f.ext === 'tsv' || f.ext === 'xlsx' || f.ext === 'xlsx_dir') && (
+        <button onClick={onConvert} disabled={converting.has(f.path)} className="opacity-60 hover:opacity-100 ml-0.5 text-blue-600 hover:text-blue-800 disabled:opacity-30" title={f.ext === 'xlsx_dir' ? 'Merge all xlsx and convert to Parquet' : 'Convert to Parquet'}>
           {converting.has(f.path) ? (
             <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="animate-spin">
               <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
