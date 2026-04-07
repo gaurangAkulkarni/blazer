@@ -275,15 +275,15 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
               // Unknown or legacy folder — instruct the LLM to probe first
               fileContext += `- Directory: \`${f.path}\`\n`
               fileContext += `  IMPORTANT: Before querying, run \`SELECT file FROM glob('${f.path}/**/*') LIMIT 10\` to see what files are inside, then use the correct reader:\n`
-              fileContext += `  • Excel files (.xlsx): \`read_xlsx('${f.path}/*.xlsx')\`\n`
+              fileContext += `  • Excel files (.xlsx): \`read_xlsx((SELECT list(file) FROM glob('${f.path}/*.xlsx')))\`\n`
               fileContext += `  • Parquet files: \`read_parquet('${f.path}/**/*.parquet')\`\n`
-              fileContext += `  • CSV files: \`read_csv('${f.path}/*.csv', auto_detect=true)\`\n`
+              fileContext += `  • CSV files: \`read_csv_auto((SELECT list(file) FROM glob('${f.path}/*.csv')))\`\n`
             } else {
               const fn =
                 f.ext === 'csv' || f.ext === 'tsv' ? `read_csv('${f.path}', auto_detect=true)` :
                 f.ext === 'xlsx' ? `read_xlsx('${f.path}')` :
-                f.ext === 'xlsx_dir' ? `read_xlsx('${f.path}/*.xlsx')` :
-                f.ext === 'csv_dir' ? `read_csv('${f.path}/*.csv', auto_detect=true)` :
+                f.ext === 'xlsx_dir' ? `read_xlsx((SELECT list(file) FROM glob('${f.path}/*.xlsx')))` :
+                f.ext === 'csv_dir' ? `read_csv_auto((SELECT list(file) FROM glob('${f.path}/*.csv')))` :
                 `read_parquet('${f.path}')`
               fileContext += `- \`${fn}\`\n`
             }
