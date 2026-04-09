@@ -299,6 +299,8 @@ You think like a senior data analyst:
 4. Flag data quality issues (nulls, outliers, unexpected values) when spotted.
 5. Keep result sets small and meaningful — always use limit unless the user asks for all rows.`,
   },
+  // Removed: skynet-recon (client-specific, not for general distribution)
+  /*
   {
     id: 'skynet-recon',
     name: 'Skynet Reconciliation',
@@ -538,6 +540,7 @@ FROM (DESCRIBE SELECT * FROM read_xlsx('/path/to/file.xlsx'));
 
 Always use DuckDB SQL (\`\`\`sql blocks). Never use Blazer JSON for reconciliation — DuckDB handles multi-file Excel joins better.`,
   },
+  */
 ]
 
 export function resolveSkillPrompts(activeSkillIds: string[], customSkills: Skill[] = []): string {
