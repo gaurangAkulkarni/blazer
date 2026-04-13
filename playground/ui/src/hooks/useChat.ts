@@ -432,8 +432,15 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
         if (isEmptyAssistant || isErrorMsg) continue
         apiMessages.push({ role: m.role, content: m.content })
       }
-      // Send file context only in the system message (already added above) — NOT duplicated in user message
-      // Duplication wastes tokens and can exceed context windows on local models
+      // Inject a path reminder system message immediately before the user turn so the LLM
+      // always has the exact paths fresh in context regardless of conversation length.
+      if (allFiles.length > 0) {
+        const pathLines = allFiles.map((f) => `  • ${f.path}`).join('\n')
+        apiMessages.push({
+          role: 'system',
+          content: `## File Path Reminder\nThe following exact paths are loaded — copy them character-for-character, never guess or paraphrase:\n${pathLines}`,
+        })
+      }
       apiMessages.push({ role: 'user', content: content })
 
       const now = Date.now()
