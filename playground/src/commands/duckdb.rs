@@ -71,6 +71,51 @@ pub async fn run_duckdb_query(sql: String) -> DuckDbResult {
     }
 }
 
+/// Run multiple SQL statements in a **single shared in-memory connection** so that
+/// DDL from earlier blocks (CREATE VIEW, CREATE TABLE, etc.) is visible to later ones.
+/// Returns one DuckDbResult per statement, in order.
+#[tauri::command]
+pub async fn run_duckdb_batch(sqls: Vec<String>) -> Vec<DuckDbResult> {
+    tokio::task::spawn_blocking(move || {
+        let conn = match Connection::open_in_memory() {
+            Ok(c) => c,
+            Err(e) => {
+                let err = format!("DuckDB connection error: {e}");
+                return sqls.iter().map(|_| DuckDbResult {
+                    success: false,
+                    error: Some(err.clone()),
+                    data: vec![],
+                    columns: vec![],
+                    shape: [0, 0],
+                    duration_ms: 0,
+                }).collect();
+            }
+        };
+
+        sqls.into_iter().map(|sql| {
+            let start = std::time::Instant::now();
+            match execute_sql_on_conn(&conn, &sql) {
+                Ok((data, columns)) => DuckDbResult {
+                    success: true,
+                    error: None,
+                    shape: [data.len(), columns.len()],
+                    data,
+                    columns,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                },
+                Err(e) => DuckDbResult {
+                    success: false,
+                    error: Some(e),
+                    data: vec![],
+                    columns: vec![],
+                    shape: [0, 0],
+                    duration_ms: start.elapsed().as_millis() as u64,
+                },
+            }
+        }).collect()
+    }).await.unwrap_or_default()
+}
+
 // ── Native execution ──────────────────────────────────────────────────────────
 
 fn execute_sql_native(

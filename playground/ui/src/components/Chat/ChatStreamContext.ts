@@ -26,6 +26,8 @@ export interface ChatStreamCtx {
   agenticPlanSteps?: string[]
   /** True if the last agentic step returned an error */
   agenticStepError?: boolean
+  /** All SQL blocks in this message in order — used so later blocks can run DDL from earlier ones in the same connection */
+  allSqlBlocks?: string[]
 }
 
 export const ChatStreamContext = createContext<ChatStreamCtx>({

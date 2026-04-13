@@ -206,6 +206,18 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
   const blockIndexRef = useRef(0)
   blockIndexRef.current = 0
 
+  // Extract all SQL blocks from the message upfront so QueryBlocks can reference
+  // preceding blocks and run DDL + SELECT in the same connection.
+  const allSqlBlocks = useMemo(() => {
+    const blocks: string[] = []
+    const re = /```sql\n([\s\S]*?)```/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(message.content)) !== null) {
+      blocks.push(m[1].trim())
+    }
+    return blocks
+  }, [message.content])
+
   // ── Stable refs so memoized components never go stale ───────────────────────
   const onQueryResultRef = useRef(onQueryResult)
   onQueryResultRef.current = onQueryResult
@@ -238,7 +250,8 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
     agenticCurrentStep: agenticCurrentStep ?? 0,
     agenticPlanSteps: agenticPlanSteps ?? [],
     agenticStepError: isLastMessage ? !!agenticStepError : false,
-  }), [isStreaming, autoRun, isLastMessage, message.id, message.queryResults, !!onSaveSnippet, !!onAppendToChat, snippetGroups, agenticMode, agenticActive, agenticCurrentStep, agenticPlanSteps, agenticStepError])
+    allSqlBlocks,
+  }), [isStreaming, autoRun, isLastMessage, message.id, message.queryResults, !!onSaveSnippet, !!onAppendToChat, snippetGroups, agenticMode, agenticActive, agenticCurrentStep, agenticPlanSteps, agenticStepError, allSqlBlocks])
 
   // ── User message markdown components — code blocks rendered but NOT executable ─
   const userMdComponents = useMemo(() => ({

@@ -85,7 +85,7 @@ interface Props {
 
 export function QueryBlock({ code, language, index = 0, onQueryResult }: Props) {
   // isStreaming, autoRun, messageId, existingResults, onSaveSnippet, onSendToChat, agenticMode come from context
-  const { isStreaming, autoRun, agenticMode, messageId, existingResults, onSaveSnippet, snippetGroups = [], onSendToChat } = useContext(ChatStreamContext)
+  const { isStreaming, autoRun, agenticMode, messageId, existingResults, onSaveSnippet, snippetGroups = [], onSendToChat, allSqlBlocks = [] } = useContext(ChatStreamContext)
   const activeConnections = useContext(ConnectionsContext)
 
   // ── Stable queryId: computed once from (messageId + index + code), same across restarts ──
@@ -175,9 +175,21 @@ export function QueryBlock({ code, language, index = 0, onQueryResult }: Props) 
     try {
       let r: QueryResult
       if (isSqlQuery) {
-        r = activeConnections.length > 0
-          ? await invoke<QueryResult>('run_duckdb_query_with_connections', { sql: displayCode, connections: activeConnections })
-          : await invoke<QueryResult>('run_duckdb_query', { sql: displayCode })
+        // If there are preceding SQL blocks in the same message, run them all in a single
+        // shared connection so DDL (CREATE VIEW, CREATE TABLE, etc.) is visible to this block.
+        const precedingSqls = allSqlBlocks.slice(0, index)
+        if (precedingSqls.length > 0 && activeConnections.length === 0) {
+          const allSqls = [...precedingSqls, displayCode]
+          const results = await invoke<QueryResult[]>('run_duckdb_batch', { sqls: allSqls })
+          // Use the last result (this block's result); stop early on first error
+          const lastResult = results[results.length - 1]
+          const firstError = results.find((res) => !res.success)
+          r = firstError ?? lastResult
+        } else {
+          r = activeConnections.length > 0
+            ? await invoke<QueryResult>('run_duckdb_query_with_connections', { sql: displayCode, connections: activeConnections })
+            : await invoke<QueryResult>('run_duckdb_query', { sql: displayCode })
+        }
       } else {
         const parsed = JSON.parse(code)
         r = await invoke<QueryResult>('run_query', { query: parsed })
