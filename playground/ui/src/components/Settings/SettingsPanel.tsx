@@ -697,6 +697,35 @@ export function SettingsPanel({ settings, onUpdate, onClose }: Props) {
                     </div>
                   </div>
 
+                  {/* Max output tokens */}
+                  <div className="flex items-center justify-between py-1">
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-gray-800 dark:text-gray-200">Max output tokens</div>
+                      <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 leading-relaxed">
+                        Maximum tokens the LLM can generate per response.
+                      </div>
+                    </div>
+                    <div className="ml-4 shrink-0 flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+                      {([1024, 2048, 4096, 8192, 16000] as const).map((n) => {
+                        const labels: Record<number, string> = { 1024: '1k', 2048: '2k', 4096: '4k', 8192: '8k', 16000: '16k' }
+                        const label = labels[n] ?? String(n)
+                        const cur = settings.max_output_tokens ?? 4096
+                        const active = cur === n
+                        return (
+                          <button
+                            key={n}
+                            onClick={() => onUpdate({ max_output_tokens: n })}
+                            className={`text-[11px] font-medium px-2 py-0.5 rounded-md transition-all ${
+                              active ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
                   {/* Follow-up chips toggle */}
                   <div className="flex items-center justify-between py-1">
                     <div className="min-w-0">

@@ -113,6 +113,8 @@ export interface AppSettings {
   show_follow_up_chips?: boolean
   /** Max number of previous messages to include in context (0 = all) */
   context_history_limit?: number
+  /** Max output tokens per LLM response (undefined = provider default: 4096 for Claude, no cap for OpenAI/Ollama) */
+  max_output_tokens?: number
   /** Named database/extension connections available for use in queries */
   connections?: ConnectionAlias[]
 }

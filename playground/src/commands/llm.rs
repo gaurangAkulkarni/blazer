@@ -26,6 +26,8 @@ pub struct StreamLlmArgs {
     pub stream_id: String,
     /// Optional custom base URL — Ollama (e.g. "http://localhost:11434") or OpenAI-compatible proxy
     pub base_url: Option<String>,
+    /// Maximum output tokens (None = use provider default)
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(Serialize, Clone)]
@@ -76,6 +78,9 @@ async fn stream_openai(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
         "temperature": args.temperature,
         "stream": true,
     });
+    if let Some(max_tok) = args.max_tokens {
+        body["max_tokens"] = serde_json::json!(max_tok);
+    }
     if is_official_openai {
         body["stream_options"] = serde_json::json!({ "include_usage": true });
     }
@@ -156,7 +161,7 @@ async fn stream_claude(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
 
     let mut body = serde_json::json!({
         "model": args.model,
-        "max_tokens": 4096,
+        "max_tokens": args.max_tokens.unwrap_or(4096),
         "temperature": args.temperature,
         "messages": user_messages,
         "stream": true,
@@ -249,12 +254,15 @@ async fn stream_ollama(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
         .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
         .collect();
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": args.model,
         "messages": messages,
         "temperature": args.temperature,
         "stream": true,
     });
+    if let Some(max_tok) = args.max_tokens {
+        body["max_tokens"] = serde_json::json!(max_tok);
+    }
 
     let response = client
         .post(&url)

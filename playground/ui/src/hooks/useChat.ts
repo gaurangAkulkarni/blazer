@@ -560,6 +560,9 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
                 : providerCfg.base_url
                   ? { base_url: providerCfg.base_url }
                   : {}),
+              ...(settings.max_output_tokens != null
+                ? { max_tokens: settings.max_output_tokens }
+                : {}),
             },
           }).catch((err) => {
             cleanup()
