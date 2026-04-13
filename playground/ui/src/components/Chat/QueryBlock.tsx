@@ -79,13 +79,15 @@ interface Props {
   language: string
   /** Position of this block within the parent message (0-based). Makes IDs unique even for identical SQL. */
   index?: number
+  /** Position among sql-only blocks in this message (-1 for non-sql). Used for DDL preamble batching. */
+  sqlIndex?: number
   /** Called with result, original query text, and which engine ran it. */
   onQueryResult?: (result: QueryResult, query: string, engine: 'blazer' | 'duckdb') => void
 }
 
-export function QueryBlock({ code, language, index = 0, onQueryResult }: Props) {
+export function QueryBlock({ code, language, index = 0, sqlIndex = -1, onQueryResult }: Props) {
   // isStreaming, autoRun, messageId, existingResults, onSaveSnippet, onSendToChat, agenticMode come from context
-  const { isStreaming, autoRun, agenticMode, messageId, existingResults, onSaveSnippet, snippetGroups = [], onSendToChat, allSqlBlocks = [] } = useContext(ChatStreamContext)
+  const { isStreaming, autoRun, agenticMode, messageId, existingResults, onSaveSnippet, snippetGroups = [], onSendToChat, sqlBlocksRef } = useContext(ChatStreamContext)
   const activeConnections = useContext(ConnectionsContext)
 
   // ── Stable queryId: computed once from (messageId + index + code), same across restarts ──
@@ -175,11 +177,14 @@ export function QueryBlock({ code, language, index = 0, onQueryResult }: Props) 
     try {
       let r: QueryResult
       if (isSqlQuery) {
-        // Prepend only DDL blocks (CREATE, INSERT, DROP, ALTER, etc.) from earlier in the message
-        // so they run in the same connection. Pure SELECT blocks are skipped — they produce no
-        // persistent state and re-running them would be wasteful.
+        // Prepend only DDL blocks (CREATE, INSERT, DROP, ALTER, etc.) from earlier sql blocks
+        // in the same message so they run in the same connection. Pure SELECTs are skipped —
+        // they produce no persistent state and re-running them would be wasteful.
         const DDL_RE = /^\s*(CREATE|DROP|ALTER|INSERT|UPDATE|DELETE|COPY\b)/i
-        const precedingSqls = allSqlBlocks.slice(0, index).filter(s => DDL_RE.test(s))
+        const allSqlsInMessage = sqlBlocksRef?.current ?? []
+        const precedingSqls = sqlIndex > 0
+          ? allSqlsInMessage.slice(0, sqlIndex).filter(s => DDL_RE.test(s))
+          : []
         if (precedingSqls.length > 0 && activeConnections.length === 0) {
           const allSqls = [...precedingSqls, displayCode]
           const results = await invoke<QueryResult[]>('run_duckdb_batch', { sqls: allSqls })

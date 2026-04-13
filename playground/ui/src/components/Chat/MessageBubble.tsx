@@ -206,17 +206,14 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
   const blockIndexRef = useRef(0)
   blockIndexRef.current = 0
 
-  // Extract all SQL blocks from the message upfront so QueryBlocks can reference
-  // preceding blocks and run DDL + SELECT in the same connection.
-  const allSqlBlocks = useMemo(() => {
-    const blocks: string[] = []
-    const re = /```sql\n([\s\S]*?)```/g
-    let m: RegExpExecArray | null
-    while ((m = re.exec(message.content)) !== null) {
-      blocks.push(m[1].trim())
-    }
-    return blocks
-  }, [message.content])
+  // SQL-block-specific counter — only incremented for sql blocks (not json etc.)
+  const sqlBlockIndexRef = useRef(0)
+  sqlBlockIndexRef.current = 0
+
+  // Populated during the ReactMarkdown render pass with each sql block's cleaned code.
+  // More reliable than a regex on message.content because it uses the same parsing.
+  const sqlBlocksRef = useRef<string[]>([])
+  sqlBlocksRef.current = []
 
   // ── Stable refs so memoized components never go stale ───────────────────────
   const onQueryResultRef = useRef(onQueryResult)
@@ -250,8 +247,8 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
     agenticCurrentStep: agenticCurrentStep ?? 0,
     agenticPlanSteps: agenticPlanSteps ?? [],
     agenticStepError: isLastMessage ? !!agenticStepError : false,
-    allSqlBlocks,
-  }), [isStreaming, autoRun, isLastMessage, message.id, message.queryResults, !!onSaveSnippet, !!onAppendToChat, snippetGroups, agenticMode, agenticActive, agenticCurrentStep, agenticPlanSteps, agenticStepError, allSqlBlocks])
+    sqlBlocksRef,
+  }), [isStreaming, autoRun, isLastMessage, message.id, message.queryResults, !!onSaveSnippet, !!onAppendToChat, snippetGroups, agenticMode, agenticActive, agenticCurrentStep, agenticPlanSteps, agenticStepError])
 
   // ── User message markdown components — code blocks rendered but NOT executable ─
   const userMdComponents = useMemo(() => ({
@@ -298,11 +295,26 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
       }
       if (language) {
         const blockIndex = blockIndexRef.current++
+        // For sql blocks: record cleaned code in sqlBlocksRef so later blocks
+        // can prepend DDL from earlier ones into the same connection.
+        let sqlIndex = -1
+        if (language === 'sql') {
+          sqlIndex = sqlBlockIndexRef.current++
+          const cleaned = codeStr
+            .split('\n')
+            .filter(l => !/^\s*`{3,}/.test(l))
+            .filter(l => !/^\s*DONE\s*$/i.test(l))
+            .filter(l => !/^\s*sql\s*$/i.test(l))
+            .join('\n')
+            .trim()
+          sqlBlocksRef.current[sqlIndex] = cleaned
+        }
         return (
           <QueryBlock
             code={codeStr}
             language={language}
             index={blockIndex}
+            sqlIndex={sqlIndex}
             onQueryResult={(r, q, eng) =>
               onQueryResultRef.current?.(messageIdRef.current, r, q, eng)
             }

@@ -1,4 +1,5 @@
 import { createContext } from 'react'
+import type React from 'react'
 import type { QueryResult, SnippetGroup } from '../../lib/types'
 
 export interface ChatStreamCtx {
@@ -26,8 +27,9 @@ export interface ChatStreamCtx {
   agenticPlanSteps?: string[]
   /** True if the last agentic step returned an error */
   agenticStepError?: boolean
-  /** All SQL blocks in this message in order — used so later blocks can run DDL from earlier ones in the same connection */
-  allSqlBlocks?: string[]
+  /** Ref populated during the ReactMarkdown render pass with each sql block's cleaned code in order.
+   *  Used so later QueryBlocks can prepend DDL from earlier blocks in the same connection. */
+  sqlBlocksRef?: React.MutableRefObject<string[]>
 }
 
 export const ChatStreamContext = createContext<ChatStreamCtx>({
