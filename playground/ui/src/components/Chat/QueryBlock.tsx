@@ -175,9 +175,11 @@ export function QueryBlock({ code, language, index = 0, onQueryResult }: Props) 
     try {
       let r: QueryResult
       if (isSqlQuery) {
-        // If there are preceding SQL blocks in the same message, run them all in a single
-        // shared connection so DDL (CREATE VIEW, CREATE TABLE, etc.) is visible to this block.
-        const precedingSqls = allSqlBlocks.slice(0, index)
+        // Prepend only DDL blocks (CREATE, INSERT, DROP, ALTER, etc.) from earlier in the message
+        // so they run in the same connection. Pure SELECT blocks are skipped — they produce no
+        // persistent state and re-running them would be wasteful.
+        const DDL_RE = /^\s*(CREATE|DROP|ALTER|INSERT|UPDATE|DELETE|COPY\b)/i
+        const precedingSqls = allSqlBlocks.slice(0, index).filter(s => DDL_RE.test(s))
         if (precedingSqls.length > 0 && activeConnections.length === 0) {
           const allSqls = [...precedingSqls, displayCode]
           const results = await invoke<QueryResult[]>('run_duckdb_batch', { sqls: allSqls })
