@@ -126,7 +126,7 @@ fn execute_sql_native(
     execute_sql_on_conn(&conn, sql)
 }
 
-fn execute_sql_on_conn(
+pub(crate) fn execute_sql_on_conn(
     conn: &Connection,
     sql: &str,
 ) -> Result<(Vec<serde_json::Map<String, Value>>, Vec<String>), String> {
@@ -167,7 +167,7 @@ fn execute_sql_on_conn(
 
 // ── DuckDB Value → serde_json::Value ─────────────────────────────────────────
 
-fn duck_to_json(val: DuckValue) -> Value {
+pub(crate) fn duck_to_json(val: DuckValue) -> Value {
     match val {
         DuckValue::Null => Value::Null,
         DuckValue::Boolean(b) => Value::Bool(b),

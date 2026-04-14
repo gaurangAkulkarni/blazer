@@ -1,13 +1,16 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { ChatMessage, AppSettings, AttachedFile, QueryResult, ConnectionAlias } from '../lib/types'
+import type { ChatMessage, AppSettings, AttachedFile, QueryResult, ConnectionAlias, ToolCallRecord } from '../lib/types'
 import { resolveSkillPrompts, ENGINE_SKILL_IDS } from '../lib/skills'
 import {
   dbLoadMessages, dbSaveMessage, dbClearMessages,
   dbLoadFiles, dbSaveFile, dbDeleteFile, dbClearFiles,
   migrateFromLocalStorage,
 } from '../lib/db'
+import { getToolSchemas } from '../lib/llm/toolSchemas'
+import { shouldSendTools, cacheToolCallSupport } from '../lib/llm/toolCallSupport'
+import { executeToolCall } from '../lib/tools/executeToolCall'
 
 export type Engine = 'blazer' | 'duckdb'
 
@@ -247,7 +250,7 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
   }, [])
 
   const sendMessage = useCallback(
-    async (content: string, newAttachments?: AttachedFile[], perMessageSkillIds?: string[], opts?: { agenticMode?: boolean; agenticContinuation?: boolean; activeConnections?: ConnectionAlias[]; agenticRunId?: string }) => {
+    async (content: string, newAttachments?: AttachedFile[], perMessageSkillIds?: string[], opts?: { agenticMode?: boolean; agenticContinuation?: boolean; activeConnections?: ConnectionAlias[]; agenticRunId?: string; isAutoProfile?: boolean; toolCallDepth?: number }) => {
       let allFiles = loadedFiles
       if (newAttachments && newAttachments.length > 0) {
         addFiles(newAttachments)
@@ -454,6 +457,7 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
       const assistantMsg: ChatMessage = {
         id: nextId(), role: 'assistant', content: '', timestamp: now + 1,
         agenticRunId: opts?.agenticRunId,
+        isAutoProfile: opts?.isAutoProfile,
       }
 
       setMessages((prev) => [...prev, userMsg, assistantMsg])
@@ -463,22 +467,35 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
 
       const streamId = `stream-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-      try {
-        await new Promise<void>((resolve, reject) => {
+      // Determine whether to send tools for this request
+      const toolCallDepth = opts?.toolCallDepth ?? 0
+      const MAX_TOOL_CALL_DEPTH = 8
+      const useTools = toolCallDepth < MAX_TOOL_CALL_DEPTH &&
+        settings.tool_calling_enabled !== false &&
+        shouldSendTools(provider, providerCfg.model)
+
+      // Helper: run a single streaming turn and resolve when llm-end fires.
+      // Appends chunks to the current last assistant message.
+      // Returns the accumulated tool calls (if any) for continuation.
+      const runStreamTurn = (
+        turnMessages: object[],
+        turnStreamId: string,
+        sendTools: boolean,
+      ): Promise<{ toolCalls: Array<{ id: string; name: string; arguments: string }>; assistantText: string } | null> => {
+        return new Promise<{ toolCalls: Array<{ id: string; name: string; arguments: string }>; assistantText: string } | null>((resolve, reject) => {
           let unlistenChunk: (() => void) | null = null
           let unlistenEnd: (() => void) | null = null
+          let unlistenToolCalls: (() => void) | null = null
+          let toolCallPayload: { toolCalls: Array<{ id: string; name: string; arguments: string }>; assistantText: string } | null = null
 
           const cleanup = () => {
             unlistenChunk?.()
             unlistenEnd?.()
-            stopStreamRef.current = null
+            unlistenToolCalls?.()
           }
 
-          // Allow external callers (Stop button) to cancel this stream
-          stopStreamRef.current = () => { cleanup(); resolve() }
-
           listen<{ stream_id: string; chunk: string }>('llm-chunk', (event) => {
-            if (event.payload.stream_id !== streamId) return
+            if (event.payload.stream_id !== turnStreamId) return
             streamingRef.current += event.payload.chunk
             setMessages((prev) => {
               const updated = [...prev]
@@ -488,71 +505,40 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
               }
               return updated
             })
-          }).then((unlisten) => { unlistenChunk = unlisten })
+          }).then((u) => { unlistenChunk = u })
+
+          listen<{ stream_id: string; tool_calls: Array<{ id: string; name: string; arguments: string }>; assistant_text: string }>('llm-tool-calls', (event) => {
+            if (event.payload.stream_id !== turnStreamId) return
+            cacheToolCallSupport(provider, providerCfg.model, true)
+            toolCallPayload = { toolCalls: event.payload.tool_calls, assistantText: event.payload.assistant_text }
+
+            // Mark running chips on current assistant message
+            const runningRecords: ToolCallRecord[] = event.payload.tool_calls.map((tc) => ({
+              id: tc.id || `tc-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              name: tc.name,
+              arguments: (() => { try { return JSON.parse(tc.arguments) } catch { return {} } })(),
+              status: 'running' as const,
+            }))
+            setMessages((prev) => {
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (last?.role === 'assistant') {
+                const existing = last.toolCalls ?? []
+                updated[updated.length - 1] = { ...last, toolCalls: [...existing, ...runningRecords] }
+              }
+              return updated
+            })
+          }).then((u) => { unlistenToolCalls = u })
 
           listen<{ stream_id: string; error: string | null; tokens_in?: number; tokens_out?: number }>('llm-end', (event) => {
-            if (event.payload.stream_id !== streamId) return
+            if (event.payload.stream_id !== turnStreamId) return
             cleanup()
             if (event.payload.error) {
               reject(new Error(event.payload.error))
             } else {
-              // Stamp the assistant message with timing + token counts + suggestions
-              const duration_ms = Date.now() - requestStart
-              const { tokens_in, tokens_out } = event.payload
-              setMessages((prev) => {
-                const updated = [...prev]
-                const last = updated[updated.length - 1]
-                if (last?.role === 'assistant') {
-                  // Parse and strip <suggestions>…</suggestions> from displayed content.
-                  // Handles: missing closing tag, extra whitespace/newlines, malformed JSON.
-                  const raw = last.content
-                  // Try with closing tag first; fall back to "opening tag → end of string"
-                  const suggestionsMatch =
-                    raw.match(/\n?<suggestions>([\s\S]*?)<\/suggestions>/) ??
-                    raw.match(/\n?<suggestions>([\s\S]*)$/)
-                  let displayContent = raw
-                  let suggestions: string[] | undefined
-                  if (suggestionsMatch) {
-                    // Strip the entire matched block wherever it appears
-                    displayContent = raw.replace(suggestionsMatch[0], '').trimEnd()
-                    const inner = suggestionsMatch[1].trim()
-                    // Strategy 1: direct JSON parse
-                    try {
-                      const parsed = JSON.parse(inner)
-                      if (Array.isArray(parsed)) suggestions = parsed.map(String).filter(Boolean).slice(0, 5)
-                    } catch {
-                      // Strategy 2: extract first [...] substring and parse that
-                      const arrMatch = inner.match(/\[[\s\S]*?\]/)
-                      if (arrMatch) {
-                        try {
-                          const parsed = JSON.parse(arrMatch[0])
-                          if (Array.isArray(parsed)) suggestions = parsed.map(String).filter(Boolean).slice(0, 5)
-                        } catch { /* still malformed */ }
-                      }
-                      // Strategy 3: pull out every "quoted string" — handles no-bracket format
-                      if (!suggestions) {
-                        const chips = [...inner.matchAll(/"([^"]+)"/g)].map((m) => m[1]).filter(Boolean)
-                        if (chips.length > 0) suggestions = chips.slice(0, 5)
-                      }
-                    }
-                  }
-                  // Split any multi-statement SQL blocks into separate query blocks
-                  const finalContent = splitMultiStatementBlocks(displayContent)
-
-                  updated[updated.length - 1] = {
-                    ...last,
-                    content: finalContent,
-                    duration_ms,
-                    tokens_in,
-                    tokens_out,
-                    suggestions,
-                  }
-                }
-                return updated
-              })
-              resolve()
+              resolve(toolCallPayload)
             }
-          }).then((unlisten) => { unlistenEnd = unlisten })
+          }).then((u) => { unlistenEnd = u })
 
           invoke('stream_llm', {
             args: {
@@ -560,8 +546,8 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
               api_key: providerCfg.api_key,
               model: providerCfg.model,
               temperature: providerCfg.temperature,
-              messages: apiMessages,
-              stream_id: streamId,
+              messages: turnMessages,
+              stream_id: turnStreamId,
               ...(provider === 'ollama'
                 ? { base_url: settings.ollama.base_url }
                 : providerCfg.base_url
@@ -570,11 +556,150 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
               ...(settings.max_output_tokens != null
                 ? { max_tokens: settings.max_output_tokens }
                 : {}),
+              ...(sendTools ? { tools: getToolSchemas() } : {}),
             },
           }).catch((err) => {
             cleanup()
             reject(new Error(String(err)))
           })
+        })
+      }
+
+      try {
+        // Outer promise wraps the full agentic tool-call loop
+        await new Promise<void>(async (resolve, reject) => {
+          let cancelled = false
+          stopStreamRef.current = () => { cancelled = true; resolve() }
+
+          try {
+            let currentMessages: object[] = apiMessages
+            let currentDepth = toolCallDepth
+            let allToolCalls: ToolCallRecord[] = []
+
+            while (currentDepth < MAX_TOOL_CALL_DEPTH && !cancelled) {
+              const turnStreamId = currentDepth === toolCallDepth
+                ? streamId
+                : `stream-${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+              const sendToolsThisTurn = currentDepth < MAX_TOOL_CALL_DEPTH &&
+                settings.tool_calling_enabled !== false &&
+                shouldSendTools(provider, providerCfg.model)
+
+              const toolCallPayload = await runStreamTurn(currentMessages, turnStreamId, sendToolsThisTurn)
+
+              if (!toolCallPayload || toolCallPayload.toolCalls.length === 0) {
+                // No tool calls — stamp final content and break
+                const duration_ms = Date.now() - requestStart
+
+                // We need to get current tokens — re-listen to llm-end was done inside runStreamTurn
+                // but we didn't capture tokens_in/tokens_out. For now pass undefined.
+                setMessages((prev) => {
+                  const updated = [...prev]
+                  const last = updated[updated.length - 1]
+                  if (last?.role === 'assistant') {
+                    const raw = last.content
+                    const suggestionsMatch =
+                      raw.match(/\n?<suggestions>([\s\S]*?)<\/suggestions>/) ??
+                      raw.match(/\n?<suggestions>([\s\S]*)$/)
+                    let displayContent = raw
+                    let suggestions: string[] | undefined
+                    if (suggestionsMatch) {
+                      displayContent = raw.replace(suggestionsMatch[0], '').trimEnd()
+                      const inner = suggestionsMatch[1].trim()
+                      try {
+                        const parsed = JSON.parse(inner)
+                        if (Array.isArray(parsed)) suggestions = parsed.map(String).filter(Boolean).slice(0, 5)
+                      } catch {
+                        const arrMatch = inner.match(/\[[\s\S]*?\]/)
+                        if (arrMatch) {
+                          try {
+                            const parsed = JSON.parse(arrMatch[0])
+                            if (Array.isArray(parsed)) suggestions = parsed.map(String).filter(Boolean).slice(0, 5)
+                          } catch { /* still malformed */ }
+                        }
+                        if (!suggestions) {
+                          const chips = [...inner.matchAll(/"([^"]+)"/g)].map((m) => m[1]).filter(Boolean)
+                          if (chips.length > 0) suggestions = chips.slice(0, 5)
+                        }
+                      }
+                    }
+                    const finalContent = splitMultiStatementBlocks(displayContent)
+                    updated[updated.length - 1] = {
+                      ...last,
+                      content: finalContent,
+                      duration_ms,
+                      suggestions,
+                    }
+                  }
+                  return updated
+                })
+                break
+              }
+
+              // Execute tool calls and update chips
+              const rawToolCalls = toolCallPayload.toolCalls
+              const assistantText = toolCallPayload.assistantText
+
+              const completedRecords: ToolCallRecord[] = []
+              for (const tc of rawToolCalls) {
+                const tcId = tc.id || `tc-${Date.now()}-${Math.random().toString(36).slice(2)}`
+                const parsedArgs: Record<string, unknown> = (() => { try { return JSON.parse(tc.arguments) } catch { return {} } })()
+                const start = Date.now()
+                const result = await executeToolCall(tc.name, parsedArgs)
+                const duration_ms = Date.now() - start
+                const isError = result && typeof result === 'object' && (result as any).success === false
+                completedRecords.push({
+                  id: tcId,
+                  name: tc.name,
+                  arguments: parsedArgs,
+                  result,
+                  duration_ms,
+                  status: isError ? 'error' : 'success',
+                })
+              }
+              allToolCalls = [...allToolCalls, ...completedRecords]
+
+              // Update the assistant message with completed tool call records
+              setMessages((prev) => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last?.role === 'assistant') {
+                  // Replace running records with completed ones (match by name order)
+                  const existingCompleted = (last.toolCalls ?? []).filter((tc) => tc.status !== 'running')
+                  updated[updated.length - 1] = { ...last, toolCalls: [...existingCompleted, ...completedRecords] }
+                }
+                return updated
+              })
+
+              // Build continuation messages
+              const continuationToolCalls = completedRecords.map((tc) => ({
+                id: tc.id,
+                type: 'function' as const,
+                function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+              }))
+              const assistantToolMsg = {
+                role: 'assistant',
+                content: assistantText || '',
+                tool_calls: continuationToolCalls,
+              }
+              const toolResultMsgs = completedRecords.map((tc) => ({
+                role: 'tool',
+                content: JSON.stringify(tc.result),
+                tool_call_id: tc.id,
+              }))
+
+              currentMessages = [...currentMessages, assistantToolMsg, ...toolResultMsgs]
+              currentDepth += 1
+              // Reset streaming accumulator for the next turn (content appended onto same message)
+              // We do NOT reset streamingRef — we want to APPEND to the existing content
+            }
+
+            stopStreamRef.current = null
+            resolve()
+          } catch (err) {
+            stopStreamRef.current = null
+            reject(err)
+          }
         })
       } catch (err: any) {
         setMessages((prev) => {

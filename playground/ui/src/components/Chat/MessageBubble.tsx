@@ -3,6 +3,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { QueryBlock } from './QueryBlock'
 import { ChatStreamContext } from './ChatStreamContext'
+import { ToolCallChip } from './ToolCallChip'
+import { AutoProfileCard } from './AutoProfileCard'
 import type { ChatMessage, QueryResult, SnippetGroup } from '../../lib/types'
 
 interface Props {
@@ -412,14 +414,34 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
           </>
         ) : (
           <>
-            <div className="chat-prose prose prose-sm max-w-none prose-gray pr-6">
-              {/* Provider scopes the streaming state to this message's QueryBlocks */}
-              <ChatStreamContext.Provider value={ctxValue}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                  {message.content}
-                </ReactMarkdown>
-              </ChatStreamContext.Provider>
-            </div>
+            {/* Auto-profile card replaces normal markdown rendering */}
+            {message.isAutoProfile ? (
+              <div className="pr-6">
+                <AutoProfileCard
+                  message={message}
+                  onSendToChat={onSend}
+                />
+              </div>
+            ) : (
+              <>
+                {/* Tool call chips — rendered before message content for all assistant messages */}
+                {message.toolCalls && message.toolCalls.length > 0 && (
+                  <div className="mb-2 pr-6 space-y-1">
+                    {message.toolCalls.map(tc => (
+                      <ToolCallChip key={tc.id} toolCall={tc} />
+                    ))}
+                  </div>
+                )}
+                <div className="chat-prose prose prose-sm max-w-none prose-gray pr-6">
+                  {/* Provider scopes the streaming state to this message's QueryBlocks */}
+                  <ChatStreamContext.Provider value={ctxValue}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                      {message.content}
+                    </ReactMarkdown>
+                  </ChatStreamContext.Provider>
+                </div>
+              </>
+            )}
 
             {/* ── Timing + token footer ──────────────────────────── */}
             {(message.duration_ms != null || message.tokens_in != null) && (

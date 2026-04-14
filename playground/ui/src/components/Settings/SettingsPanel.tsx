@@ -748,6 +748,29 @@ export function SettingsPanel({ settings, onUpdate, onClose }: Props) {
                     </button>
                   </div>
 
+                  {/* Tool calling toggle */}
+                  <div className="flex items-center justify-between py-1">
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-gray-800 dark:text-gray-200">Tool calling</div>
+                      <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 leading-relaxed">
+                        Let the AI call data analysis tools directly. Auto-profiling requires this.
+                      </div>
+                    </div>
+                    <button
+                      role="switch"
+                      aria-checked={settings.tool_calling_enabled !== false}
+                      onClick={() => {
+                        onUpdate({ tool_calling_enabled: settings.tool_calling_enabled === false })
+                        import('../../lib/llm/toolCallSupport').then(m => m.clearToolCallCache())
+                      }}
+                      className={`relative ml-4 shrink-0 inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none
+                        ${settings.tool_calling_enabled !== false ? 'bg-gray-900' : 'bg-gray-200'}`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform
+                        ${settings.tool_calling_enabled !== false ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                    </button>
+                  </div>
+
                   <hr className="border-gray-100" />
 
                   {/* Per-provider settings — only the active provider is shown */}

@@ -6,6 +6,12 @@ use tauri::{AppHandle, Emitter};
 pub struct LlmMessage {
     pub role: String,
     pub content: String,
+    /// tool_call_id for role=tool messages
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
+    /// tool_calls for role=assistant messages that triggered tools
+    #[serde(default)]
+    pub tool_calls: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -28,6 +34,10 @@ pub struct StreamLlmArgs {
     pub base_url: Option<String>,
     /// Maximum output tokens (None = use provider default)
     pub max_tokens: Option<u32>,
+    /// Tool schemas to send (OpenAI-compat format)
+    pub tools: Option<Vec<serde_json::Value>>,
+    /// Pre-serialized tool result messages to append before sending
+    pub tool_messages: Option<Vec<serde_json::Value>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -44,6 +54,20 @@ pub struct LlmEndEvent {
     pub tokens_out: Option<u32>,
 }
 
+#[derive(Serialize, Clone, Deserialize, Debug)]
+pub struct ToolCallInfo {
+    pub id: String,
+    pub name: String,
+    pub arguments: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct LlmToolCallsEvent {
+    pub stream_id: String,
+    pub tool_calls: Vec<ToolCallInfo>,
+    pub assistant_text: String,
+}
+
 #[tauri::command]
 pub async fn stream_llm(app: AppHandle, args: StreamLlmArgs) -> Result<(), String> {
     match args.provider {
@@ -56,11 +80,27 @@ pub async fn stream_llm(app: AppHandle, args: StreamLlmArgs) -> Result<(), Strin
 async fn stream_openai(app: AppHandle, args: StreamLlmArgs) -> Result<(), String> {
     let client = reqwest::Client::new();
 
-    let messages: Vec<serde_json::Value> = args
+    let mut messages: Vec<serde_json::Value> = args
         .messages
         .iter()
-        .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+        .map(|m| {
+            let mut obj = serde_json::json!({ "role": m.role, "content": m.content });
+            if let Some(tcid) = &m.tool_call_id {
+                obj["tool_call_id"] = serde_json::json!(tcid);
+            }
+            if let Some(tcs) = &m.tool_calls {
+                obj["tool_calls"] = serde_json::json!(tcs);
+            }
+            obj
+        })
         .collect();
+
+    // Append pre-serialized tool result messages if provided
+    if let Some(extra_msgs) = args.tool_messages {
+        for msg in extra_msgs {
+            messages.push(msg);
+        }
+    }
 
     let base = args
         .base_url
@@ -84,6 +124,11 @@ async fn stream_openai(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
     if is_official_openai {
         body["stream_options"] = serde_json::json!({ "include_usage": true });
     }
+    // Inject tool schemas if provided
+    if let Some(tools) = args.tools {
+        body["tools"] = serde_json::json!(tools);
+        body["tool_choice"] = serde_json::json!("auto");
+    }
 
     let response = client
         .post(&endpoint)
@@ -106,6 +151,10 @@ async fn stream_openai(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
     let mut tokens_in: Option<u32> = None;
     let mut tokens_out: Option<u32> = None;
 
+    // Tool call accumulation
+    let mut tool_call_map: std::collections::BTreeMap<u64, (String, String, String)> = std::collections::BTreeMap::new();
+    let mut assistant_text = String::new();
+
     while let Some(item) = stream.next().await {
         let bytes = match item {
             Ok(b) => b,
@@ -124,10 +173,21 @@ async fn stream_openai(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
                 // Content delta
                 if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
+                    assistant_text.push_str(delta);
                     let _ = app.emit("llm-chunk", LlmChunkEvent {
                         stream_id: args.stream_id.clone(),
                         chunk: delta.to_string(),
                     });
+                }
+                // Tool call deltas
+                if let Some(tcs) = json["choices"][0]["delta"]["tool_calls"].as_array() {
+                    for tc in tcs {
+                        let idx = tc["index"].as_u64().unwrap_or(0);
+                        let entry = tool_call_map.entry(idx).or_insert_with(|| (String::new(), String::new(), String::new()));
+                        if let Some(id) = tc["id"].as_str() { if !id.is_empty() { entry.0 = id.to_string(); } }
+                        if let Some(name) = tc["function"]["name"].as_str() { if !name.is_empty() { entry.1 = name.to_string(); } }
+                        if let Some(fargs) = tc["function"]["arguments"].as_str() { entry.2.push_str(fargs); }
+                    }
                 }
                 // Usage chunk (final chunk with include_usage=true)
                 if let Some(usage) = json.get("usage").filter(|u| !u.is_null()) {
@@ -136,6 +196,19 @@ async fn stream_openai(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
                 }
             }
         }
+    }
+
+    // Emit tool calls event if any were accumulated
+    if !tool_call_map.is_empty() {
+        let tool_calls: Vec<ToolCallInfo> = tool_call_map.into_values()
+            .filter(|(_, name, _)| !name.is_empty())
+            .map(|(id, name, arguments)| ToolCallInfo { id, name, arguments })
+            .collect();
+        let _ = app.emit("llm-tool-calls", LlmToolCallsEvent {
+            stream_id: args.stream_id.clone(),
+            tool_calls,
+            assistant_text: assistant_text.clone(),
+        });
     }
 
     let _ = app.emit("llm-end", LlmEndEvent { stream_id: args.stream_id, error: None, tokens_in, tokens_out });
@@ -248,11 +321,27 @@ async fn stream_ollama(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
         .trim_end_matches('/');
     let url = format!("{}/v1/chat/completions", base);
 
-    let messages: Vec<serde_json::Value> = args
+    let mut messages: Vec<serde_json::Value> = args
         .messages
         .iter()
-        .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+        .map(|m| {
+            let mut obj = serde_json::json!({ "role": m.role, "content": m.content });
+            if let Some(tcid) = &m.tool_call_id {
+                obj["tool_call_id"] = serde_json::json!(tcid);
+            }
+            if let Some(tcs) = &m.tool_calls {
+                obj["tool_calls"] = serde_json::json!(tcs);
+            }
+            obj
+        })
         .collect();
+
+    // Append pre-serialized tool result messages if provided
+    if let Some(extra_msgs) = args.tool_messages {
+        for msg in extra_msgs {
+            messages.push(msg);
+        }
+    }
 
     let mut body = serde_json::json!({
         "model": args.model,
@@ -262,6 +351,11 @@ async fn stream_ollama(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
     });
     if let Some(max_tok) = args.max_tokens {
         body["max_tokens"] = serde_json::json!(max_tok);
+    }
+    // Inject tool schemas if provided
+    if let Some(tools) = args.tools {
+        body["tools"] = serde_json::json!(tools);
+        body["tool_choice"] = serde_json::json!("auto");
     }
 
     let response = client
@@ -287,6 +381,10 @@ async fn stream_ollama(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
     let mut tokens_in: Option<u32> = None;
     let mut tokens_out: Option<u32> = None;
 
+    // Tool call accumulation
+    let mut tool_call_map: std::collections::BTreeMap<u64, (String, String, String)> = std::collections::BTreeMap::new();
+    let mut assistant_text = String::new();
+
     while let Some(item) = stream.next().await {
         let bytes = match item {
             Ok(b) => b,
@@ -306,10 +404,21 @@ async fn stream_ollama(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
             }
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
                 if let Some(delta) = json["choices"][0]["delta"]["content"].as_str() {
+                    assistant_text.push_str(delta);
                     let _ = app.emit("llm-chunk", LlmChunkEvent {
                         stream_id: args.stream_id.clone(),
                         chunk: delta.to_string(),
                     });
+                }
+                // Tool call deltas
+                if let Some(tcs) = json["choices"][0]["delta"]["tool_calls"].as_array() {
+                    for tc in tcs {
+                        let idx = tc["index"].as_u64().unwrap_or(0);
+                        let entry = tool_call_map.entry(idx).or_insert_with(|| (String::new(), String::new(), String::new()));
+                        if let Some(id) = tc["id"].as_str() { if !id.is_empty() { entry.0 = id.to_string(); } }
+                        if let Some(name) = tc["function"]["name"].as_str() { if !name.is_empty() { entry.1 = name.to_string(); } }
+                        if let Some(fargs) = tc["function"]["arguments"].as_str() { entry.2.push_str(fargs); }
+                    }
                 }
                 // Ollama may include usage in the final chunk
                 if let Some(usage) = json.get("usage").filter(|u| !u.is_null()) {
@@ -318,6 +427,19 @@ async fn stream_ollama(app: AppHandle, args: StreamLlmArgs) -> Result<(), String
                 }
             }
         }
+    }
+
+    // Emit tool calls event if any were accumulated
+    if !tool_call_map.is_empty() {
+        let tool_calls: Vec<ToolCallInfo> = tool_call_map.into_values()
+            .filter(|(_, name, _)| !name.is_empty())
+            .map(|(id, name, arguments)| ToolCallInfo { id, name, arguments })
+            .collect();
+        let _ = app.emit("llm-tool-calls", LlmToolCallsEvent {
+            stream_id: args.stream_id.clone(),
+            tool_calls,
+            assistant_text: assistant_text.clone(),
+        });
     }
 
     let _ = app.emit("llm-end", LlmEndEvent { stream_id: args.stream_id, error: None, tokens_in, tokens_out });

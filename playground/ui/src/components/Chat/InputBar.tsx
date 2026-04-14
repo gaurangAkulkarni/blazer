@@ -33,9 +33,11 @@ interface Props {
   onStop?: () => void
   /** True while the LLM is streaming — shows Stop button instead of Send */
   isStreaming?: boolean
+  /** Called when new files are attached — triggers auto-profile with 500ms debounce */
+  onAutoProfile?: (files: AttachedFile[]) => void
 }
 
-export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile, onReplaceFile, prefill, onPrefillConsumed, availableSkills = [], availableConnections = [], activeConnections = [], onAddConnection, onRemoveConnection, onStop, isStreaming = false }: Props) {
+export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile, onReplaceFile, prefill, onPrefillConsumed, availableSkills = [], availableConnections = [], activeConnections = [], onAddConnection, onRemoveConnection, onStop, isStreaming = false, onAutoProfile }: Props) {
   const [input, setInput] = useState('')
   const [pendingFiles, setPendingFiles] = useState<AttachedFile[]>([])
   const [converting, setConverting] = useState<Set<string>>(new Set())
@@ -50,6 +52,8 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
   const connPickerRef = useRef<HTMLDivElement>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const autoProfileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingAutoProfileFilesRef = useRef<AttachedFile[]>([])
 
   // Prefill from external source (e.g. "Ask AI" from error/result card) — always APPENDS
   useEffect(() => {
@@ -177,6 +181,18 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
   }
 
+  const scheduleAutoProfile = (newFiles: AttachedFile[]) => {
+    if (!onAutoProfile || newFiles.length === 0) return
+    pendingAutoProfileFilesRef.current = [...pendingAutoProfileFilesRef.current, ...newFiles]
+    if (autoProfileTimerRef.current) clearTimeout(autoProfileTimerRef.current)
+    autoProfileTimerRef.current = setTimeout(() => {
+      autoProfileTimerRef.current = null
+      const files = pendingAutoProfileFilesRef.current
+      pendingAutoProfileFilesRef.current = []
+      if (files.length > 0) onAutoProfile(files)
+    }, 500)
+  }
+
   const handleAttach = async () => {
     const results = await invoke<FileInfo[]>('open_file_dialog').catch(() => [])
     if (!results.length) return
@@ -184,13 +200,16 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
       path: r.path, name: r.name, ext: r.ext, columns: r.columns,
     }))
     setPendingFiles((prev) => [...prev, ...files])
+    scheduleAutoProfile(files)
   }
 
   const handleAttachFolder = async () => {
     const result = await invoke<FileInfo | null>('open_folder_dialog').catch(() => null)
     if (!result) return
+    const file: AttachedFile = { path: result.path, name: result.name, ext: result.ext }
     // Use the ext detected by the backend (xlsx_dir / csv_dir / parquet_dir)
-    setPendingFiles((prev) => [...prev, { path: result.path, name: result.name, ext: result.ext }])
+    setPendingFiles((prev) => [...prev, file])
+    scheduleAutoProfile([file])
   }
 
   const convertFile = async (file: AttachedFile, onSuccess: (newFile: AttachedFile) => void) => {

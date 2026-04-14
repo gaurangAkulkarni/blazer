@@ -35,6 +35,15 @@ export interface QueryHistoryEntry {
   error?: string
 }
 
+export interface ToolCallRecord {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+  result?: unknown
+  duration_ms?: number
+  status: 'running' | 'success' | 'error'
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
@@ -58,6 +67,10 @@ export interface ChatMessage {
   agenticRunId?: string
   /** Plan steps — stored only on the first assistant message of each run */
   agenticPlanSteps?: string[]
+  /** Tool calls made during this assistant message */
+  toolCalls?: ToolCallRecord[]
+  /** Whether this message is an auto-profile response */
+  isAutoProfile?: boolean
 }
 
 export interface CustomSkill {
@@ -117,6 +130,8 @@ export interface AppSettings {
   max_output_tokens?: number
   /** Named database/extension connections available for use in queries */
   connections?: ConnectionAlias[]
+  /** Enable LLM tool calling (run_sql, describe_tables, etc.). Default: true. */
+  tool_calling_enabled?: boolean
 }
 
 export interface SnippetGroup {

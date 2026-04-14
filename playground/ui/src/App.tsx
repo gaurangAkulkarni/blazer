@@ -26,6 +26,7 @@ import { BUILT_IN_SKILLS } from './lib/skills'
 import type { Skill } from './lib/skills'
 import { ConnectionsContext } from './lib/ConnectionsContext'
 import type { ConnectionAlias } from './lib/types'
+import { buildAutoProfilePrompt } from './lib/autoProfile'
 
 // ── Agentic result context builder ───────────────────────────────────────────
 // Builds a rich markdown representation of query results to send back to the
@@ -488,6 +489,18 @@ export default function App() {
     [agenticMode, sendMessage, activeConnections],
   )
 
+  // ── Auto-profile handler ─────────────────────────────────────────────────────
+  // Fires when new files are attached to InputBar (with 500ms debounce applied there).
+  // Sends a data profiling prompt using the data-analyst skill with tool calling.
+  const handleAutoProfile = useCallback(
+    (files: AttachedFile[]) => {
+      if (settings.tool_calling_enabled === false) return
+      const prompt = buildAutoProfilePrompt(files)
+      sendMessage(prompt, files, ['data-analyst'], { isAutoProfile: true, activeConnections })
+    },
+    [settings.tool_calling_enabled, sendMessage, activeConnections],
+  )
+
   // ── Resizable split pane ────────────────────────────────────────────────────
   const [splitPct, setSplitPct] = usePersistedState<number>('blazer_split_pct', 52)
   const splitContainerRef = useRef<HTMLDivElement>(null)
@@ -896,6 +909,7 @@ export default function App() {
                   onRemoveConnection={removeConnection}
                   isStreaming={isStreaming}
                   onStop={() => { stopStream(); stopAgenticLoop() }}
+                  onAutoProfile={handleAutoProfile}
                 />
               </div>
             </div>
