@@ -249,6 +249,10 @@ export function useChat(
   const [isStreaming, setIsStreaming] = useState(false)
   const [loadedFiles, setLoadedFilesState] = useState<AttachedFile[]>([])
 
+  // Stable ref so sendMessage can read latest messages without being recreated on every chunk.
+  const messagesRef = useRef<ChatMessage[]>([])
+  messagesRef.current = messages
+
   // Debounce timer — DB writes fire 400 ms after the last setMessages call so
   // rapid streaming chunks don't hammer SQLite.
   const dbSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -522,7 +526,7 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
       // Include previous messages, capped by context_history_limit (0 = all)
       // Skip: empty assistant messages, and error messages — they waste tokens and confuse local models
       const limit = settings.context_history_limit ?? 20
-      const historyMsgs = limit > 0 ? messages.slice(-limit) : messages
+      const historyMsgs = limit > 0 ? messagesRef.current.slice(-limit) : messagesRef.current
       for (const m of historyMsgs) {
         const isEmptyAssistant = m.role === 'assistant' && m.content.trim() === ''
         const isErrorMsg = m.role === 'assistant' && m.content.startsWith('**Error:**')
@@ -562,36 +566,52 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
       // Helper: run a single streaming turn and resolve when llm-end fires.
       // Appends chunks to the current last assistant message.
       // Returns the accumulated tool calls (if any) for continuation.
-      const runStreamTurn = (
+      //
+      // Two key fixes vs. the old callback-based version:
+      //   1. All three listen() calls are AWAITED before invoke() starts, so
+      //      unlisten functions are always valid when cleanup runs — no leak race.
+      //   2. Streaming chunk updates are RAF-throttled to ≤60 FPS, preventing the
+      //      render storm that froze the WebView after prolonged agentic sessions.
+      const runStreamTurn = async (
         turnMessages: object[],
         turnStreamId: string,
         sendTools: boolean,
       ): Promise<{ toolCalls: Array<{ id: string; name: string; arguments: string }>; assistantText: string } | null> => {
-        return new Promise<{ toolCalls: Array<{ id: string; name: string; arguments: string }>; assistantText: string } | null>((resolve, reject) => {
-          let unlistenChunk: (() => void) | null = null
-          let unlistenEnd: (() => void) | null = null
-          let unlistenToolCalls: (() => void) | null = null
-          let toolCallPayload: { toolCalls: Array<{ id: string; name: string; arguments: string }>; assistantText: string } | null = null
+        type TurnResult = { toolCalls: Array<{ id: string; name: string; arguments: string }>; assistantText: string } | null
+        let toolCallPayload: TurnResult = null
 
-          const cleanup = () => {
-            unlistenChunk?.()
-            unlistenEnd?.()
-            unlistenToolCalls?.()
-          }
+        // Deferred promise — resolved/rejected by the llm-end handler below.
+        let resolveEnd!: (v: TurnResult) => void
+        let rejectEnd!: (e: Error) => void
+        const endPromise = new Promise<TurnResult>((res, rej) => {
+          resolveEnd = res
+          rejectEnd = rej
+        })
 
+        // RAF handle for streaming chunk batching — limits UI updates to ≤60 FPS.
+        let rafId: number | null = null
+        const flushChunk = () => {
+          rafId = null
+          const displayContent = stripModelTokens(streamingRef.current)
+          setMessages((prev) => {
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (last?.role === 'assistant') {
+              updated[updated.length - 1] = { ...last, content: displayContent }
+            }
+            return updated
+          })
+        }
+
+        // Register ALL listeners before starting the stream.
+        // Promise.all ensures every unlisten fn is assigned before any event can fire.
+        const [unlistenChunk, unlistenToolCalls, unlistenEnd] = await Promise.all([
           listen<{ stream_id: string; chunk: string }>('llm-chunk', (event) => {
             if (event.payload.stream_id !== turnStreamId) return
             streamingRef.current += event.payload.chunk
-            const displayContent = stripModelTokens(streamingRef.current)
-            setMessages((prev) => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (last?.role === 'assistant') {
-                updated[updated.length - 1] = { ...last, content: displayContent }
-              }
-              return updated
-            })
-          }).then((u) => { unlistenChunk = u })
+            // Batch DOM updates — only one setMessages per animation frame
+            if (!rafId) rafId = requestAnimationFrame(flushChunk)
+          }),
 
           listen<{ stream_id: string; tool_calls: Array<{ id: string; name: string; arguments: string }>; assistant_text: string }>('llm-tool-calls', (event) => {
             if (event.payload.stream_id !== turnStreamId) return
@@ -621,43 +641,55 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
               }
               return updated
             })
-          }).then((u) => { unlistenToolCalls = u })
+          }),
 
           listen<{ stream_id: string; error: string | null; tokens_in?: number; tokens_out?: number }>('llm-end', (event) => {
             if (event.payload.stream_id !== turnStreamId) return
-            cleanup()
+            // Flush any buffered chunk immediately so the final content is visible
+            if (rafId) { cancelAnimationFrame(rafId); rafId = null; flushChunk() }
+            // All unlisten fns are guaranteed valid here (awaited above)
+            unlistenChunk()
+            unlistenToolCalls()
+            unlistenEnd()
             if (event.payload.error) {
-              reject(new Error(event.payload.error))
+              rejectEnd(new Error(event.payload.error))
             } else {
-              resolve(toolCallPayload)
+              resolveEnd(toolCallPayload)
             }
-          }).then((u) => { unlistenEnd = u })
+          }),
+        ])
 
-          appLog.info('llm', `Sending to ${provider} · ${providerCfg.model}`, { messages: turnMessages.length, content_preview: (typeof (turnMessages[turnMessages.length - 1] as any)?.content === 'string' ? (turnMessages[turnMessages.length - 1] as any).content as string : '').slice(0, 120) })
+        appLog.info('llm', `Sending to ${provider} · ${providerCfg.model}`, { messages: turnMessages.length, content_preview: (typeof (turnMessages[turnMessages.length - 1] as any)?.content === 'string' ? (turnMessages[turnMessages.length - 1] as any).content as string : '').slice(0, 120) })
 
-          invoke('stream_llm', {
-            args: {
-              provider,
-              api_key: providerCfg.api_key,
-              model: providerCfg.model,
-              temperature: providerCfg.temperature,
-              messages: turnMessages,
-              stream_id: turnStreamId,
-              ...(provider === 'ollama'
-                ? { base_url: settings.ollama.base_url }
-                : providerCfg.base_url
-                  ? { base_url: providerCfg.base_url }
-                  : {}),
-              ...(settings.max_output_tokens != null
-                ? { max_tokens: settings.max_output_tokens }
+        // Start the LLM stream. If invoke() itself rejects (e.g. network error),
+        // cancel the RAF and clean up all listeners immediately.
+        invoke('stream_llm', {
+          args: {
+            provider,
+            api_key: providerCfg.api_key,
+            model: providerCfg.model,
+            temperature: providerCfg.temperature,
+            messages: turnMessages,
+            stream_id: turnStreamId,
+            ...(provider === 'ollama'
+              ? { base_url: settings.ollama.base_url }
+              : providerCfg.base_url
+                ? { base_url: providerCfg.base_url }
                 : {}),
-              ...(sendTools ? { tools: getToolSchemas() } : {}),
-            },
-          }).catch((err) => {
-            cleanup()
-            reject(new Error(String(err)))
-          })
+            ...(settings.max_output_tokens != null
+              ? { max_tokens: settings.max_output_tokens }
+              : {}),
+            ...(sendTools ? { tools: getToolSchemas() } : {}),
+          },
+        }).catch((err) => {
+          if (rafId) { cancelAnimationFrame(rafId); rafId = null }
+          unlistenChunk()
+          unlistenToolCalls()
+          unlistenEnd()
+          rejectEnd(new Error(String(err)))
         })
+
+        return endPromise
       }
 
       try {
@@ -997,7 +1029,7 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
         setIsStreaming(false)
       }
     },
-    [messages, settings, loadedFiles, addFiles, engine],
+    [settings, loadedFiles, addFiles, engine],  // messages read via messagesRef to avoid recreation on every chunk
   )
 
   const clearMessages = useCallback(() => {
