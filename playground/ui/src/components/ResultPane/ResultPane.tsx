@@ -457,16 +457,22 @@ function ResultCard({ result, index, total, onDismiss, onSendToAI, onScrollToQue
                       const val = row[col]
                       const isNum = typeof val === 'number'
                       return (
-                        <td key={col} className={`px-3 py-1.5 border-b border-gray-100 dark:border-gray-800 whitespace-nowrap ${isNum ? 'text-right tabular-nums text-blue-700 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'} ${val === null ? 'text-gray-300 dark:text-gray-600 italic' : ''}`}>
-                          {val === null
-                            ? 'null'
-                            : isNum
-                              ? Number.isInteger(val)
-                                // Integers: no locale formatting so years/IDs never get commas
-                                ? (val as number).toString()
-                                // Floats: force en-US so we get "1,234,567.89" not Indian grouping
-                                : (val as number).toLocaleString('en-US', { maximumFractionDigits: 4 })
-                              : String(val)}
+                        <td key={col} className={`px-3 py-1.5 border-b border-gray-100 dark:border-gray-800 ${isNum ? 'text-right tabular-nums text-blue-700 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'} ${val === null ? 'text-gray-300 dark:text-gray-600 italic' : ''}`}>
+                          {/* Wrapper div — overflow:hidden on <td> is ignored without table-layout:fixed */}
+                          <div
+                            className={`overflow-hidden text-ellipsis whitespace-nowrap ${
+                              isNum ? 'min-w-[50px] text-right' : 'max-w-[200px]'
+                            }`}
+                            title={val === null ? undefined : String(val)}
+                          >
+                            {val === null
+                              ? 'null'
+                              : isNum
+                                ? Number.isInteger(val)
+                                  ? (val as number).toString()
+                                  : (val as number).toLocaleString('en-US', { maximumFractionDigits: 4 })
+                                : String(val)}
+                          </div>
                         </td>
                       )
                     })}

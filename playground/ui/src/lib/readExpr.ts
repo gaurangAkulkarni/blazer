@@ -34,10 +34,29 @@ export function readExpr(file: AttachedFile): string {
   if (ext === 'xlsx') return `read_xlsx('${p}', all_varchar=true)`
   if (ext === 'parquet_dir' || !ext || ext === '') return `read_parquet('${p}/**/*.parquet')`
   if (ext === 'parquet') return `read_parquet('${p}')`
+  // JSON / NDJSON — must use read_json_auto, NOT read_parquet
+  if (ext === 'json' || ext === 'ndjson' || ext === 'jsonl') return `read_json_auto('${p}')`
   // dirs: caller should use resolveReadExpr()
   if (ext === 'xlsx_dir') return `read_xlsx('${p}/*.xlsx', all_varchar=true)`
   if (ext === 'csv_dir') return `read_csv_auto('${p}/*.csv')`
+  if (ext === 'json_dir') return `read_json_auto('${p}/*.ndjson')`
+  // Unknown extension — default to parquet (most common analytical format)
   return `read_parquet('${p}')`
+}
+
+/**
+ * Derive the correct DuckDB reader expression from a bare file path string.
+ * Used when we discover actual files inside a folder at runtime (e.g. from
+ * describe_tables results) and need to build the reader without an AttachedFile.
+ */
+export function readerForPath(filePath: string): string {
+  const p = filePath.replace(/'/g, "''")
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+  if (ext === 'csv' || ext === 'tsv') return `read_csv_auto('${p}')`
+  if (ext === 'xlsx') return `read_xlsx('${p}', all_varchar=true)`
+  if (ext === 'parquet') return `read_parquet('${p}')`
+  if (ext === 'json' || ext === 'ndjson' || ext === 'jsonl') return `read_json_auto('${p}')`
+  return `read_parquet('${p}')` // safe default
 }
 
 /**

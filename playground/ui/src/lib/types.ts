@@ -4,7 +4,26 @@ export interface AttachedFile {
   path: string
   name: string
   ext: string
+  /** Column names — populated after describe_tables or stats */
   columns?: string[]
+  /** Column name → DuckDB type, populated after describe_tables */
+  columnTypes?: Record<string, string>
+  /** Total row count, populated after column_stats or a COUNT query */
+  rowCount?: number
+  /**
+   * Overrides readExpr() when the actual content type was discovered at runtime.
+   * Set when a folder is profiled and the real files inside (e.g. NDJSON) differ
+   * from what the folder extension implies (e.g. would default to parquet).
+   * Example: "read_json_auto('/path/trip_complete_data.ndjson')"
+   */
+  readerExpr?: string
+  /**
+   * Short DuckDB view name created automatically when the file is attached.
+   * The LLM is instructed to query `FROM alias` instead of typing the full path,
+   * eliminating path hallucination errors (e.g. gaurangkulatorani vs gaurangkulkarani).
+   * Example: "tracker" → SELECT * FROM tracker
+   */
+  alias?: string
 }
 
 export interface QueryResult {

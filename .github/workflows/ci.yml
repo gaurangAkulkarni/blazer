@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  # ── TypeScript / Vitest tests ───────────────────────────────────────────────
+  test-ui:
+    name: TypeScript tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: playground/ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: playground/ui
+        run: npm ci
+
+      - name: Run tests
+        working-directory: playground/ui
+        run: npm run test:run
+
+      - name: Run tests with coverage
+        working-directory: playground/ui
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: playground/ui/coverage/
+          retention-days: 7
+
+  # ── Rust / cargo tests ──────────────────────────────────────────────────────
+  test-rust:
+    name: Rust tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: playground -> target
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            pkg-config
+
+      - name: Run Rust tests
+        working-directory: playground
+        run: cargo test
+
+  # ── Summary gate — both must pass before merge ─────────────────────────────
+  ci-pass:
+    name: CI passed
+    needs: [test-ui, test-rust]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [ "${{ needs.test-ui.result }}" != "success" ] || \
+             [ "${{ needs.test-rust.result }}" != "success" ]; then
+            echo "One or more test jobs failed."
+            exit 1
+          fi
+          echo "All CI checks passed."

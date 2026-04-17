@@ -26,6 +26,7 @@ pub fn run() {
             commands::duckdb::run_duckdb_batch,
             commands::duckdb::export_to_parquet,
             commands::tools::execute_tool_call,
+            commands::duckdb::test_duckdb_connection,
         ])
         .setup(|app| {
             // Set app icon at runtime so dev builds also show the new logo.

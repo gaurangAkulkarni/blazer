@@ -1,0 +1,13 @@
+{
+  "name": "blazer-repo",
+  "private": true,
+  "description": "Root package — dev tooling only (husky pre-commit hooks). App code lives in playground/ui.",
+  "scripts": {
+    "prepare": "husky",
+    "test:ui": "cd playground/ui && npm run test:run",
+    "test:rust": "cd playground && cargo test"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { CheckCircle, XCircle } from 'lucide-react'
 import type { AppSettings, AzureAuthMethod, ConnectionAlias } from '../../lib/types'
 
 // ── Known extension catalogue ─────────────────────────────────────────────────
@@ -108,10 +109,12 @@ function ConnectionForm({
   initial,
   onSave,
   onCancel,
+  onTest,
 }: {
   initial?: ConnectionAlias
   onSave: (c: ConnectionAlias) => void
   onCancel: () => void
+  onTest?: (c: ConnectionAlias) => Promise<{ ok: boolean; msg: string }>
 }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [extType, setExtType] = useState(initial?.ext_type ?? 'postgres')
@@ -125,12 +128,15 @@ function ConnectionForm({
   const [azureClientSecret, setAzureClientSecret] = useState(initial?.azure_client_secret ?? '')
   const [azureStorageConnStr, setAzureStorageConnStr] = useState(initial?.azure_storage_connection_string ?? '')
 
+  // Test state (within the form)
+  const [formTesting, setFormTesting] = useState(false)
+  const [formTestResult, setFormTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+
   const cat = CATALOGUE.find((c) => c.id === extType)
   const isPathScan = ['delta', 'iceberg'].includes(extType)
   const authHint = AZURE_AUTH_OPTIONS.find((o) => o.value === azureAuth)?.hint
 
-  const save = () => {
-    if (!name.trim()) return
+  const buildConn = (): ConnectionAlias => {
     const base: ConnectionAlias = {
       id: initial?.id ?? crypto.randomUUID(),
       name: name.trim(),
@@ -148,7 +154,24 @@ function ConnectionForm({
         base.azure_storage_connection_string = azureStorageConnStr.trim()
       }
     }
-    onSave(base)
+    return base
+  }
+
+  const save = () => {
+    if (!name.trim()) return
+    onSave(buildConn())
+  }
+
+  const handleTest = async () => {
+    if (!onTest) return
+    setFormTesting(true)
+    setFormTestResult(null)
+    try {
+      const result = await onTest(buildConn())
+      setFormTestResult(result)
+    } finally {
+      setFormTesting(false)
+    }
   }
 
   const isValid = name.trim() && (!cat?.needsConnection || connStr.trim()) &&
@@ -290,6 +313,16 @@ function ConnectionForm({
         />
       </div>
 
+      {/* Form-level test result */}
+      {formTestResult && (
+        <div className={`flex items-center gap-1.5 text-[11px] rounded-lg px-3 py-2 ${formTestResult.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+          {formTestResult.ok
+            ? <CheckCircle size={12} className="shrink-0" />
+            : <XCircle size={12} className="shrink-0" />}
+          {formTestResult.msg}
+        </div>
+      )}
+
       <div className="flex gap-2 pt-1">
         <button
           onClick={save}
@@ -298,6 +331,20 @@ function ConnectionForm({
         >
           {initial ? 'Save changes' : 'Add connection'}
         </button>
+        {onTest && (
+          <button
+            onClick={handleTest}
+            disabled={!isValid || formTesting}
+            className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition"
+          >
+            {formTesting ? (
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            )}
+            {formTesting ? 'Testing…' : 'Test'}
+          </button>
+        )}
         <button
           onClick={onCancel}
           className="text-sm text-gray-400 hover:text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-100 transition"
@@ -326,6 +373,8 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
   const [loadingStatuses, setLoadingStatuses] = useState(false)
   const [editingConn, setEditingConn] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [testingConn, setTestingConn] = useState<Record<string, boolean>>({})
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
 
   const connections = settings.connections ?? []
 
@@ -371,6 +420,25 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
   const deleteConnection = (id: string) => {
     onUpdate({ connections: connections.filter((c) => c.id !== id) })
     setDeleteConfirm(null)
+  }
+
+  const testConnection = async (conn: ConnectionAlias): Promise<{ ok: boolean; msg: string }> => {
+    const id = conn.id || 'form'
+    setTestingConn((p) => ({ ...p, [id]: true }))
+    setTestResults((p) => { const n = { ...p }; delete n[id]; return n })
+    let result: { ok: boolean; msg: string } = { ok: false, msg: '' }
+    try {
+      const msg = await invoke<string>('test_duckdb_connection', { connection: conn })
+      result = { ok: true, msg }
+    } catch (err) {
+      result = { ok: false, msg: String(err) }
+    } finally {
+      setTestingConn((p) => ({ ...p, [id]: false }))
+    }
+    // Only persist to card-level state for saved connections (those already in list)
+    const isSaved = connections.some((c) => c.id === conn.id)
+    if (isSaved) setTestResults((p) => ({ ...p, [id]: result }))
+    return result
   }
 
   return (
@@ -446,8 +514,11 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
                     </div>
                     <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{ext.description}</p>
                     {result && (
-                      <p className={`text-[11px] mt-1 ${result.ok ? 'text-green-600' : 'text-red-500'}`}>
-                        {result.ok ? '✓' : '✗'} {result.msg}
+                      <p className={`text-[11px] mt-1 flex items-center gap-1 ${result.ok ? 'text-green-600' : 'text-red-500'}`}>
+                        {result.ok
+                          ? <CheckCircle size={11} className="shrink-0" />
+                          : <XCircle size={11} className="shrink-0" />}
+                        {result.msg}
                       </p>
                     )}
                   </div>
@@ -519,9 +590,11 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
                     initial={conn as ConnectionAlias}
                     onSave={saveConnection}
                     onCancel={() => setEditingConn(null)}
+                    onTest={testConnection}
                   />
                 ) : (
-                  <div className="flex items-start gap-3 p-3 border border-gray-100 rounded-xl hover:border-gray-200 transition bg-white">
+                  <div className="border border-gray-100 rounded-xl hover:border-gray-200 transition bg-white overflow-hidden">
+                    <div className="flex items-start gap-3 p-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-semibold text-gray-900">{conn.name}</span>
@@ -545,6 +618,19 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
                       )}
                     </div>
                     <div className="shrink-0 flex items-center gap-1">
+                      {/* Test button */}
+                      <button
+                        onClick={() => testConnection(conn)}
+                        disabled={testingConn[conn.id]}
+                        className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition disabled:opacity-50"
+                        title="Test connection"
+                      >
+                        {testingConn[conn.id] ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        )}
+                      </button>
                       <button
                         onClick={() => setEditingConn(conn.id)}
                         className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
@@ -578,6 +664,16 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
                       )}
                     </div>
                   </div>
+                  {/* Test result banner */}
+                  {testResults[conn.id] && (
+                    <div className={`flex items-center gap-1.5 text-[11px] px-3 py-2 border-t ${testResults[conn.id].ok ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-600 border-red-100'}`}>
+                      {testResults[conn.id].ok
+                        ? <CheckCircle size={11} className="shrink-0" />
+                        : <XCircle size={11} className="shrink-0" />}
+                      {testResults[conn.id].msg}
+                    </div>
+                  )}
+                  </div>
                 )}
               </div>
             )
@@ -587,6 +683,7 @@ export function ExtensionsPanel({ settings, onUpdate }: Props) {
             <ConnectionForm
               onSave={saveConnection}
               onCancel={() => setEditingConn(null)}
+              onTest={testConnection}
             />
           ) : (
             <button

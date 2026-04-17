@@ -1,11 +1,15 @@
 import React, { useState, useRef, useMemo, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import { Check, Copy, ChevronDown, ChevronUp } from 'lucide-react'
 import { QueryBlock } from './QueryBlock'
 import { ChatStreamContext } from './ChatStreamContext'
 import { ToolCallChip } from './ToolCallChip'
 import { AutoProfileCard } from './AutoProfileCard'
 import type { ChatMessage, QueryResult, SnippetGroup } from '../../lib/types'
+import { WithLeadingIcon } from '../../lib/markdownIcons'
 
 interface Props {
   message: ChatMessage
@@ -148,15 +152,14 @@ function ContextInspector({ ctx, onClose }: { ctx: { role: string; content: stri
                       onClick={(e) => { e.stopPropagation(); copyMsg(i, msg.content) }}
                       className="text-[10px] text-gray-400 hover:text-gray-700 px-1.5 py-0.5 rounded hover:bg-white/60 transition flex items-center gap-1"
                     >
-                      {copiedIdx === i ? '✓' : (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                        </svg>
-                      )}
+                      {copiedIdx === i
+                        ? <Check size={10} />
+                        : <Copy size={10} />}
                     </button>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-gray-400 transition-transform ${expanded ? '' : '-rotate-90'}`}>
-                      <polyline points="6 9 12 15 18 9"/>
-                    </svg>
+                    <ChevronDown
+                      size={12}
+                      className={`text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                    />
                   </div>
                 </div>
                 {/* Content */}
@@ -168,7 +171,11 @@ function ContextInspector({ ctx, onClose }: { ctx: { role: string; content: stri
                     onClick={() => toggleExpand(i)}
                     className={`w-full text-[10px] text-gray-500 hover:text-gray-800 py-1.5 border-t ${style.border} hover:bg-white/40 transition font-medium`}
                   >
-                    {expanded ? '▲ Collapse' : `▼ Show all (${msg.content.length.toLocaleString()} chars)`}
+                    <span className="flex items-center justify-center gap-1">
+                      {expanded
+                        ? <><ChevronUp size={10} /> Collapse</>
+                        : <><ChevronDown size={10} /> Show all ({msg.content.length.toLocaleString()} chars)</>}
+                    </span>
                   </button>
                 )}
               </div>
@@ -287,6 +294,23 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
   // Because the function reference is stable, ReactMarkdown will NEVER unmount
   // QueryBlock between renders, so prevStreamingRef inside QueryBlock works correctly.
   const mdComponents = useMemo(() => ({
+    // Replace leading emoji in headings/list items with the equivalent
+    // lucide-react icon.  ASCII symbols (✓ ✗ ▲ ▼ → ←) are untouched.
+    h1: ({ children }: { children?: React.ReactNode }) => (
+      <h1><WithLeadingIcon iconSize={16}>{children}</WithLeadingIcon></h1>
+    ),
+    h2: ({ children }: { children?: React.ReactNode }) => (
+      <h2><WithLeadingIcon iconSize={14}>{children}</WithLeadingIcon></h2>
+    ),
+    h3: ({ children }: { children?: React.ReactNode }) => (
+      <h3><WithLeadingIcon iconSize={13}>{children}</WithLeadingIcon></h3>
+    ),
+    h4: ({ children }: { children?: React.ReactNode }) => (
+      <h4><WithLeadingIcon iconSize={12}>{children}</WithLeadingIcon></h4>
+    ),
+    li: ({ children }: { children?: React.ReactNode }) => (
+      <li><WithLeadingIcon iconSize={11}>{children}</WithLeadingIcon></li>
+    ),
     code({ className, children }: { className?: string; children?: React.ReactNode }) {
       const match = /language-(\w+)/.exec(className || '')
       const language = match ? match[1] : ''
@@ -342,7 +366,7 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
 
   return (
     <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
-      <div className={`group relative max-w-[92%] rounded-2xl px-4 py-3 ${isUser ? 'bg-gray-900 text-white' : 'bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700'}`}>
+      <div className={`group relative max-w-[92%] rounded-2xl px-4 py-3 ${(message.isAutoProfile || (!isUser && message.toolCalls && message.toolCalls.length > 0)) ? 'w-full' : ''} ${isUser ? 'bg-gray-900 text-white' : 'bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-100 dark:border-gray-700'}`}>
 
         {/* ── Copy button — always top-right so it never overlaps text ── */}
         <div className="absolute top-2 right-2">
@@ -368,7 +392,7 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
             {/* ── Collapsible content for long messages ─────────── */}
             <div className={`relative pr-6 ${isLongUserMsg && !userMsgExpanded ? 'max-h-24 overflow-hidden' : ''}`}>
               <div className="text-sm leading-relaxed text-white">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={userMdComponents}>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={userMdComponents}>
                   {message.content}
                 </ReactMarkdown>
               </div>
@@ -416,7 +440,7 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
           <>
             {/* Auto-profile card replaces normal markdown rendering */}
             {message.isAutoProfile ? (
-              <div className="pr-6">
+              <div className="w-full pr-6">
                 <AutoProfileCard
                   message={message}
                   onSendToChat={onSend}
@@ -432,10 +456,11 @@ export function MessageBubble({ message, onQueryResult, onSend, onAppendToChat, 
                     ))}
                   </div>
                 )}
+
                 <div className="chat-prose prose prose-sm max-w-none prose-gray pr-6">
                   {/* Provider scopes the streaming state to this message's QueryBlocks */}
                   <ChatStreamContext.Provider value={ctxValue}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={mdComponents}>
                       {message.content}
                     </ReactMarkdown>
                   </ChatStreamContext.Provider>

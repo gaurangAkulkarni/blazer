@@ -108,6 +108,7 @@ export function ConsoleEditor({ onResult, engine, onEngineChange, replayRequest,
   const editorRef    = useRef<CodeEditorRef>(null)
   const startTimeRef = useRef<number>(0)
   const timerRef     = useRef<ReturnType<typeof setInterval> | null>(null)
+  const cancelledRef = useRef<boolean>(false)
 
   // ── Build SQL schema from loaded files for autocomplete ─────────────────
   const sqlSchema = useMemo<SqlSchema>(() => {
@@ -175,9 +176,17 @@ export function ConsoleEditor({ onResult, engine, onEngineChange, replayRequest,
     setElapsed(Date.now() - startTimeRef.current)
   }, [setElapsed])
 
+  const cancelQuery = useCallback(() => {
+    cancelledRef.current = true
+    stopTimer()
+    setRunning(false)
+  }, [stopTimer])
+
   const runQuery = useCallback(async () => {
     const trimmed = text.trim()
     if (!trimmed || running) return
+
+    cancelledRef.current = false
 
     if (engine === 'blazer') {
       let parsed: unknown
@@ -192,9 +201,9 @@ export function ConsoleEditor({ onResult, engine, onEngineChange, replayRequest,
       setRunning(true)
       try {
         const result = await invoke<QueryResult>('run_query', { query: parsed })
-        onResult(result, trimmed, engine)
+        if (!cancelledRef.current) onResult(result, trimmed, engine)
       } catch (err) {
-        onResult({
+        if (!cancelledRef.current) onResult({
           success: false,
           error: String(err),
           data: [],
@@ -203,8 +212,7 @@ export function ConsoleEditor({ onResult, engine, onEngineChange, replayRequest,
           duration_ms: Date.now() - startTimeRef.current,
         }, trimmed, engine)
       } finally {
-        stopTimer()
-        setRunning(false)
+        if (!cancelledRef.current) { stopTimer(); setRunning(false) }
       }
     } else {
       // DuckDB mode
@@ -212,9 +220,9 @@ export function ConsoleEditor({ onResult, engine, onEngineChange, replayRequest,
       setRunning(true)
       try {
         const result = await invoke<QueryResult>('run_duckdb_query', { sql: trimmed })
-        onResult(result, trimmed, engine)
+        if (!cancelledRef.current) onResult(result, trimmed, engine)
       } catch (err) {
-        onResult({
+        if (!cancelledRef.current) onResult({
           success: false,
           error: String(err),
           data: [],
@@ -223,8 +231,7 @@ export function ConsoleEditor({ onResult, engine, onEngineChange, replayRequest,
           duration_ms: Date.now() - startTimeRef.current,
         }, trimmed, engine)
       } finally {
-        stopTimer()
-        setRunning(false)
+        if (!cancelledRef.current) { stopTimer(); setRunning(false) }
       }
     }
   }, [text, running, onResult, engine, startTimer, stopTimer])
@@ -401,27 +408,30 @@ export function ConsoleEditor({ onResult, engine, onEngineChange, replayRequest,
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
           </button>
-          <button
-            onClick={runQuery}
-            disabled={!isValid || running}
-            title="Run (⌘↵)"
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition
-              bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-100
-              disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {running ? (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                {formatElapsed(elapsed)}
-              </>
-            ) : (
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                Run
-                <kbd className="ml-0.5 text-gray-400 font-normal text-[10px]">⌘↵</kbd>
-              </>
-            )}
-          </button>
+          {running ? (
+            <button
+              onClick={cancelQuery}
+              title="Cancel query"
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition
+                bg-red-600 hover:bg-red-700 text-white"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+              Cancel
+            </button>
+          ) : (
+            <button
+              onClick={runQuery}
+              disabled={!isValid}
+              title="Run (⌘↵)"
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition
+                bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-100
+                disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Run
+              <kbd className="ml-0.5 text-gray-400 font-normal text-[10px]">⌘↵</kbd>
+            </button>
+          )}
         </div>
       </div>
 

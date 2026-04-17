@@ -81,8 +81,12 @@ function FileCard({ file, schema, onFetch, onProfile }: FileCardProps) {
     if (!schema) onFetch()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const extBadge = (file.ext || 'dir').toUpperCase()
-  const extColor = /CSV|TSV/.test(extBadge) ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+  // Use the schema's detected ext when available (e.g. 'ndjson' inside a parquet_dir folder)
+  const extBadge = (schema?.ext || file.ext || 'dir').toUpperCase().replace('_DIR', ' DIR')
+  const extColor = /CSV|TSV/.test(extBadge)   ? 'bg-green-100 text-green-700'
+                 : /JSON|NDJSON/.test(extBadge) ? 'bg-amber-100 text-amber-700'
+                 : /XLSX/.test(extBadge)        ? 'bg-emerald-100 text-emerald-700'
+                 : 'bg-blue-100 text-blue-700'
 
   return (
     <div className="border border-gray-100 dark:border-gray-700 rounded-lg overflow-hidden mb-2">

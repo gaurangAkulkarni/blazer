@@ -12,6 +12,7 @@
 import Database from '@tauri-apps/plugin-sql'
 import { invoke } from '@tauri-apps/api/core'
 import type { ChatMessage, AttachedFile, QueryHistoryEntry, QuerySnippet, SnippetGroup } from './types'
+import type { LogEntry } from './appLog'
 
 // ── Singleton connection ──────────────────────────────────────────────────────
 let _db: Database | null = null
@@ -49,6 +50,14 @@ async function initSchema(db: Database): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_messages_run_id ON messages (agentic_run_id)
     WHERE agentic_run_id IS NOT NULL
   `)
+  // ── Schema migrations (SQLite has no IF NOT EXISTS for ADD COLUMN) ──────────
+  const migrations = [
+    `ALTER TABLE messages ADD COLUMN tool_calls TEXT`,
+    `ALTER TABLE messages ADD COLUMN is_auto_profile INTEGER NOT NULL DEFAULT 0`,
+  ]
+  for (const sql of migrations) {
+    try { await db.execute(sql) } catch { /* column already exists — ignore */ }
+  }
   await db.execute(`
     CREATE TABLE IF NOT EXISTS loaded_files (
       path    TEXT PRIMARY KEY,
@@ -94,6 +103,19 @@ async function initSchema(db: Database): Promise<void> {
       group_id    TEXT
     )
   `)
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS app_logs (
+      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts       INTEGER NOT NULL,
+      level    TEXT    NOT NULL,
+      category TEXT    NOT NULL,
+      message  TEXT    NOT NULL,
+      data     TEXT
+    )
+  `)
+  await db.execute(`
+    CREATE INDEX IF NOT EXISTS idx_app_logs_ts ON app_logs (ts ASC)
+  `)
 }
 
 // ── Row ↔ ChatMessage mappers ─────────────────────────────────────────────────
@@ -113,6 +135,8 @@ function rowToMessage(row: Record<string, unknown>): ChatMessage {
     queryResults:        row.query_results      != null ? safeJson(row.query_results        as string) : undefined,
     attachedFiles:       row.attached_files     != null ? safeJson(row.attached_files       as string) : undefined,
     sentContext:         row.sent_context       != null ? safeJson(row.sent_context         as string) : undefined,
+    toolCalls:           row.tool_calls         != null ? safeJson(row.tool_calls           as string) : undefined,
+    isAutoProfile:       (row.is_auto_profile   as number) === 1 ? true : undefined,
   }
 }
 
@@ -147,8 +171,9 @@ export async function dbSaveMessage(msg: ChatMessage): Promise<void> {
     `INSERT OR REPLACE INTO messages
        (id, role, content, timestamp, duration_ms, tokens_in, tokens_out,
         agentic_continuation, agentic_run_id, agentic_plan_steps,
-        suggestions, query_results, attached_files, sent_context)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        suggestions, query_results, attached_files, sent_context,
+        tool_calls, is_auto_profile)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       msg.id,
       msg.role,
@@ -164,6 +189,8 @@ export async function dbSaveMessage(msg: ChatMessage): Promise<void> {
       slimResults             ? JSON.stringify(slimResults)          : null,
       msg.attachedFiles       ? JSON.stringify(msg.attachedFiles)    : null,
       msg.sentContext         ? JSON.stringify(msg.sentContext)       : null,
+      msg.toolCalls           ? JSON.stringify(msg.toolCalls)        : null,
+      msg.isAutoProfile       ? 1 : 0,
     ],
   )
 }
@@ -351,6 +378,59 @@ export async function dbDeleteSnippetGroup(id: string): Promise<void> {
 export async function dbClearSnippets(): Promise<void> {
   const db = await getDb()
   await db.execute('DELETE FROM snippets')
+}
+
+// ── app_logs ──────────────────────────────────────────────────────────────────
+
+export async function dbAppendLog(entry: LogEntry): Promise<void> {
+  const db = await getDb()
+  await db.execute(
+    `INSERT INTO app_logs (ts, level, category, message, data) VALUES (?,?,?,?,?)`,
+    [entry.ts, entry.level, entry.category, entry.message, entry.data ?? null],
+  )
+}
+
+export async function dbFlushOldLogs(): Promise<void> {
+  const db = await getDb()
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+  await db.execute('DELETE FROM app_logs WHERE ts < ?', [sevenDaysAgo])
+
+  // Check approximate size; if over 50MB, delete oldest 25%
+  const rows = await db.select<{ sz: number | null }[]>(
+    `SELECT SUM(length(message) + length(coalesce(data,''))) as sz FROM app_logs`,
+  )
+  const sz = rows[0]?.sz ?? 0
+  if (sz > 52428800) {
+    // Count total rows then delete oldest 25%
+    const countRows = await db.select<{ cnt: number }[]>('SELECT COUNT(*) as cnt FROM app_logs')
+    const total = countRows[0]?.cnt ?? 0
+    const toDelete = Math.floor(total * 0.25)
+    if (toDelete > 0) {
+      await db.execute(
+        'DELETE FROM app_logs WHERE id IN (SELECT id FROM app_logs ORDER BY id ASC LIMIT ?)',
+        [toDelete],
+      )
+    }
+  }
+}
+
+export async function dbGetLogs(limit = 2000): Promise<LogEntry[]> {
+  const db = await getDb()
+  const rows = await db.select<Record<string, unknown>[]>(
+    `SELECT id, ts, level, category, message, data
+     FROM app_logs
+     ORDER BY ts ASC
+     LIMIT ?`,
+    [limit],
+  )
+  return rows.map((r) => ({
+    id:       r.id as number,
+    ts:       r.ts as number,
+    level:    r.level as LogEntry['level'],
+    category: r.category as LogEntry['category'],
+    message:  r.message as string,
+    data:     r.data != null ? (r.data as string) : undefined,
+  }))
 }
 
 // ── localStorage → SQLite migration (runs once on first launch) ───────────────

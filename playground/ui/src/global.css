@@ -162,3 +162,11 @@ html, body, #root {
 .dark .cm-editor .tok-typeName          { color: #2dd4bf !important; }   /* teal-400 */
 .dark .cm-editor .tok-propertyName     { color: #60a5fa !important; }   /* blue-400 */
 .dark .cm-editor .tok-variableName     { color: #e5e7eb !important; }
+
+/* ── KaTeX overrides ─────────────────────────────────────────────────────────
+   Inherit the app's font size so math doesn't look oversized next to prose.
+   In dark mode, flip the KaTeX text colour to match the surrounding text.     */
+.katex { font-size: 1em !important; }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.25rem 0; }
+.dark .katex { color: #e5e7eb; }
+.dark .katex svg { fill: #e5e7eb; stroke: #e5e7eb; }

@@ -72,10 +72,14 @@ export function MessageList({ messages, isStreaming, onQueryResult, onSend, onAp
   }, [messages, onRunVisible])
 
   const lastMsg = messages[messages.length - 1]
-  // Show full rotating indicator when we're waiting for the very first chunk
-  const showIndicator = isStreaming && lastMsg?.role === 'assistant' && lastMsg?.content === ''
-  // Show a slim status strip while content is already streaming in
-  const showStreamingBar = isStreaming && lastMsg?.role === 'assistant' && (lastMsg?.content ?? '') !== ''
+  // During tool-calling turns, content is empty (all tokens stripped) but the
+  // message is visible (chips rendering). Show the slim bar instead of the
+  // full rotating indicator so we don't get a duplicate spinner below the chips.
+  const lastMsgHasToolContent = !!(lastMsg?.toolCalls?.length || lastMsg?.isAutoProfile)
+  // Show full rotating indicator only when truly waiting for first output and no chips yet
+  const showIndicator = isStreaming && lastMsg?.role === 'assistant' && lastMsg?.content === '' && !lastMsgHasToolContent
+  // Show a slim status strip while content is streaming in, OR during tool-calling turns
+  const showStreamingBar = isStreaming && lastMsg?.role === 'assistant' && ((lastMsg?.content ?? '') !== '' || lastMsgHasToolContent)
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
@@ -90,10 +94,16 @@ export function MessageList({ messages, isStreaming, onQueryResult, onSend, onAp
       )}
 
       {messages.map((msg, idx) => {
-        // Skip the empty assistant placeholder — StreamingIndicator covers this state
-        if (msg.role === 'assistant' && msg.content === '' && isStreaming && idx === messages.length - 1) return null
-        // Hide completed assistant messages with no content (e.g. empty LLM responses)
-        if (msg.role === 'assistant' && !msg.content.trim()) return null
+        // A message with tool calls or auto-profile must always render (chips and card
+        // are meaningful even when textual content is empty during tool calling turns).
+        const hasToolContent = !!(msg.toolCalls?.length || msg.isAutoProfile)
+        // Skip the empty assistant placeholder — StreamingIndicator covers this state.
+        // But keep it if it has tool chips to show (content is empty because all LLM
+        // output was tool-call tokens that got stripped from the display).
+        if (msg.role === 'assistant' && msg.content === '' && !hasToolContent && isStreaming && idx === messages.length - 1) return null
+        // Hide completed assistant messages with no content (e.g. empty LLM responses),
+        // unless they carry tool call chips or an auto-profile card.
+        if (msg.role === 'assistant' && !msg.content.trim() && !hasToolContent) return null
         // Hide internal agentic loop continuation messages from the chat UI
         if (msg.agenticContinuation) return null
         return (

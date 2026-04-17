@@ -23,9 +23,11 @@ Thumbs.db
 
 # IDE
 .idea/
-.vscode/
 *.swp
 *.swo
+# Commit shared workspace config (.vscode/settings.json, extensions.json)
+# but not personal/generated files
+.vscode/*.code-workspace
 
 # Claude Code local config
 .claude/launch.json

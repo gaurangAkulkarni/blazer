@@ -1,0 +1,21 @@
+#!/bin/sh
+# Blazer pre-commit hook — runs test suites before every commit.
+# Commit is blocked if any test fails.
+
+set -e
+
+echo ""
+echo "  Running TypeScript tests..."
+echo ""
+cd playground/ui && npm run test:run
+cd ../..
+
+echo ""
+echo "  Running Rust tests..."
+echo ""
+cd playground && cargo test --quiet
+cd ..
+
+echo ""
+echo "  All tests passed — committing."
+echo ""

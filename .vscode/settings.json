@@ -1,0 +1,15 @@
+{
+  // ── Vitest (TypeScript tests) ─────────────────────────────────────────────
+  "vitest.workspaceConfig": "playground/ui/vitest.config.ts",
+  "vitest.rootConfig": "playground/ui/vitest.config.ts",
+
+  // ── rust-analyzer (Rust tests) ────────────────────────────────────────────
+  "rust-analyzer.linkedProjects": [
+    "Cargo.toml"
+  ],
+  "rust-analyzer.testExplorer": true,
+
+  // ── General ───────────────────────────────────────────────────────────────
+  "testing.automaticallyOpenPeekView": "failureAnywhere",
+  "testing.openTesting": "openOnTestStart"
+}

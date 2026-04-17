@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './global.css'
+import 'katex/dist/katex.min.css'
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

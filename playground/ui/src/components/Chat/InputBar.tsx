@@ -189,7 +189,14 @@ export function InputBar({ onSend, onClear, disabled, loadedFiles, onRemoveFile,
       autoProfileTimerRef.current = null
       const files = pendingAutoProfileFilesRef.current
       pendingAutoProfileFilesRef.current = []
-      if (files.length > 0) onAutoProfile(files)
+      if (files.length > 0) {
+        onAutoProfile(files)
+        // Remove auto-profiled files from "Attaching" — they are now registered
+        // in the chat context (loadedFiles) via sendMessage inside onAutoProfile,
+        // so showing them in both "Loaded" and "Attaching" is redundant.
+        const profiledPaths = new Set(files.map(f => f.path))
+        setPendingFiles(prev => prev.filter(f => !profiledPaths.has(f.path)))
+      }
     }, 500)
   }
 

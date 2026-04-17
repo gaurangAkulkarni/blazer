@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { ChatStreamContext } from './ChatStreamContext'
 import { ConnectionsContext } from '../../lib/ConnectionsContext'
 import type { QueryResult, SnippetGroup } from '../../lib/types'
+import { appLog } from '../../lib/appLog'
 
 // ── Mini save-snippet popover (with group picker) ─────────────────────────────
 interface SaveSnippetPopoverProps {
@@ -206,10 +207,17 @@ export function QueryBlock({ code, language, index = 0, sqlIndex = -1, onQueryRe
       const enriched: QueryResult = { ...r, queryId, runNumber, title: extractSqlTitle(code) }
       setResult(enriched)
       setStatus(r.success ? 'success' : 'error')
+      appLog.info('sql', `DuckDB · ${r.success ? 'OK' : 'Error'}: ${displayCode.slice(0, 100).replace(/\n/g, ' ')}`, {
+        duration_ms: r.duration_ms,
+        rows: r.shape?.[0],
+        cols: r.shape?.[1],
+        error: r.error,
+      })
       if (onQueryResult) onQueryResult(enriched, code, isSqlQuery ? 'duckdb' : 'blazer')
     } catch (e: any) {
       stopTimer()
       if (cancelledRef.current) return
+      appLog.error('sql', `DuckDB crash: ${String(e)}`, { sql: displayCode.slice(0, 100) })
       const errResult: QueryResult = { success: false, error: e.message, data: [], columns: [], shape: [0, 0], duration_ms: 0, queryId, runNumber }
       setResult(errResult)
       setStatus('error')

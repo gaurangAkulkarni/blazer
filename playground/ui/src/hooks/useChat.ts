@@ -1,21 +1,37 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { appLog } from '../lib/appLog'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { ChatMessage, AppSettings, AttachedFile, QueryResult, ConnectionAlias, ToolCallRecord } from '../lib/types'
+import type { ChatMessage, AppSettings, AttachedFile, QueryResult, ConnectionAlias, ToolCallRecord, QueryHistoryEntry } from '../lib/types'
 import { resolveSkillPrompts, ENGINE_SKILL_IDS } from '../lib/skills'
+import { readExpr, readerForPath } from '../lib/readExpr'
 import {
   dbLoadMessages, dbSaveMessage, dbClearMessages,
   dbLoadFiles, dbSaveFile, dbDeleteFile, dbClearFiles,
+  dbAddHistoryEntry,
   migrateFromLocalStorage,
 } from '../lib/db'
 import { getToolSchemas } from '../lib/llm/toolSchemas'
 import { shouldSendTools, cacheToolCallSupport } from '../lib/llm/toolCallSupport'
 import { executeToolCall } from '../lib/tools/executeToolCall'
+import { toAlias } from '../lib/fileAlias'
 
 export type Engine = 'blazer' | 'duckdb'
 
 let msgCounter = 0
 const nextId = () => `msg-${++msgCounter}-${Date.now()}`
+
+// ── Strip Ollama special tokens from displayed content ────────────────────────
+// Ollama emits tool calls both as structured tool_calls objects AND as raw text
+// tokens like <|tool_call>call:name{...}<tool_call|> in the content stream.
+// Strip them so users never see raw model internals.
+function stripModelTokens(text: string): string {
+  // Remove <|tool_call>...<tool_call|> blocks (may span multiple lines)
+  let clean = text.replace(/<\|tool_call\>[\s\S]*?<tool_call\|>/g, '')
+  // Remove any remaining <|...|> special tokens (e.g. <|"|>, <|eot_id|>)
+  clean = clean.replace(/<\|[^|>]*\|>/g, '')
+  return clean
+}
 
 // ── Split multi-statement SQL blocks into separate fenced code blocks ─────────
 // Some LLMs (especially smaller local ones) dump multiple SQL statements in a
@@ -169,7 +185,66 @@ function splitMultiStatementBlocks(markdown: string): string {
   return out.join('\n')
 }
 
-export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
+// ── Tool result truncation ─────────────────────────────────────────────────────
+// Local models (Ollama, MLX) often have small context windows (4k–8k tokens).
+// Sending 100-row SQL results verbatim for every tool call eats the entire budget,
+// leaving 0–1 tokens for the model's response.
+//
+// Truncation philosophy:
+//   • Aggregation queries (GROUP BY, COUNT, SUM…) naturally return few rows (5–30).
+//     These are the real analysis results and are never truncated (threshold = 40).
+//   • Raw row dumps (SELECT * LIMIT 100) return large result sets the model doesn't
+//     need row-by-row — it should use SQL to aggregate, not scan context.
+//     These are trimmed to ROWS_HARD_LIMIT with a note to run a tighter query.
+//   • describe_tables / column_stats are already compact and pass through unchanged.
+//
+// The full result is always visible in the chip expand panel for the user.
+const ROWS_FREE    = 40   // send in full — covers most aggregations
+const ROWS_PARTIAL = 20   // trim to this when result is large
+
+function buildToolResultContent(tc: { name: string; result?: unknown }): string {
+  if (!tc.result || typeof tc.result !== 'object') return JSON.stringify(tc.result)
+  const r = tc.result as Record<string, unknown>
+
+  if (tc.name === 'run_sql' || tc.name === 'get_sample_rows') {
+    const data = r['data']
+    if (Array.isArray(data) && data.length > ROWS_FREE) {
+      const truncated = {
+        ...r,
+        data: data.slice(0, ROWS_PARTIAL),
+        _note: `${data.length - ROWS_PARTIAL} rows not shown to save context. `
+             + `The full result is visible in the UI. `
+             + `If you need aggregate statistics on this data, run a GROUP BY / COUNT / AVG query instead of reading raw rows.`,
+      }
+      return JSON.stringify(truncated)
+    }
+  }
+
+  if (tc.name === 'describe_tables') {
+    const tables = r['tables']
+    if (Array.isArray(tables)) {
+      const trimmed = tables.map((t: unknown) => {
+        if (!t || typeof t !== 'object') return t
+        const tbl = t as Record<string, unknown>
+        const cols = tbl['columns']
+        if (Array.isArray(cols) && cols.length > 60) {
+          return { ...tbl, columns: cols.slice(0, 60), _note: `${cols.length - 60} more columns not shown` }
+        }
+        return tbl
+      })
+      return JSON.stringify({ ...r, tables: trimmed })
+    }
+  }
+
+  return JSON.stringify(tc.result)
+}
+
+export function useChat(
+  settings: AppSettings,
+  engine: Engine = 'blazer',
+  /** Optional callback to record a new history entry — updates both React state and DB live. */
+  onHistoryEntry?: (entry: Omit<QueryHistoryEntry, 'id'>) => void,
+) {
   const [messages, setMessagesState] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [loadedFiles, setLoadedFilesState] = useState<AttachedFile[]>([])
@@ -196,7 +271,11 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
       .catch(console.error)
 
     dbLoadFiles()
-      .then((files) => setLoadedFilesState(files))
+      .then((files) => {
+        // Ensure each persisted file has an alias (views are recreated per-connection by Rust).
+        const withAliases = files.map((f) => f.alias ? f : { ...f, alias: toAlias(f) })
+        setLoadedFilesState(withAliases)
+      })
       .catch(console.error)
   }, [])
 
@@ -223,8 +302,17 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
     setLoadedFiles((prev) => {
       const existing = new Set(prev.map((f) => f.path))
       const toAdd = files.filter((f) => !existing.has(f.path))
-      toAdd.forEach((f) => dbSaveFile(f).catch(console.error))
-      return [...prev, ...toAdd]
+
+      // Assign aliases synchronously — Rust recreates the VIEW per-connection
+      // using the alias + reader expression passed with every tool call.
+      const withAliases = toAdd.map((f) =>
+        f.alias ? f : { ...f, alias: toAlias(f) }
+      )
+
+      withAliases.forEach((f) => dbSaveFile(f).catch(console.error))
+      withAliases.forEach((f) => appLog.info('file', `File attached: ${f.name}`, { path: f.path, ext: f.ext }))
+
+      return [...prev, ...withAliases]
     })
   }, [])
 
@@ -268,50 +356,6 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
       const isLocalEndpoint = provider === 'ollama' || !!(providerCfg.base_url?.trim())
 
       // Build file context for the LLM (adapted to engine syntax)
-      let fileContext = ''
-      if (allFiles.length > 0) {
-        if (engine === 'duckdb') {
-          fileContext = '## Attached Data Files\nUse these paths with DuckDB reader functions:\n'
-          for (const f of allFiles) {
-            const isDir = f.ext === 'parquet_dir' || f.ext === 'xlsx_dir' || f.ext === 'csv_dir' || f.ext === ''
-            if (isDir && f.ext !== 'xlsx_dir' && f.ext !== 'csv_dir') {
-              // Unknown or legacy folder — instruct the LLM to probe first
-              fileContext += `- Directory: \`${f.path}\`\n`
-              fileContext += `  IMPORTANT: Before querying, run \`SELECT file FROM glob('${f.path}/**/*') LIMIT 10\` to see what files are inside, then use the correct reader:\n`
-              fileContext += `  • Excel files (.xlsx): \`read_xlsx((SELECT list(file) FROM glob('${f.path}/*.xlsx')))\`\n`
-              fileContext += `  • Parquet files: \`read_parquet('${f.path}/**/*.parquet')\`\n`
-              fileContext += `  • CSV files: \`read_csv_auto((SELECT list(file) FROM glob('${f.path}/*.csv')))\`\n`
-            } else {
-              const fn =
-                f.ext === 'csv' || f.ext === 'tsv' ? `read_csv('${f.path}', auto_detect=true)` :
-                f.ext === 'xlsx' ? `read_xlsx('${f.path}', all_varchar=true)` :
-                f.ext === 'xlsx_dir' ? `read_xlsx((SELECT list(file) FROM glob('${f.path}/*.xlsx')), all_varchar=true)` :
-                f.ext === 'csv_dir' ? `read_csv_auto((SELECT list(file) FROM glob('${f.path}/*.csv')))` :
-                `read_parquet('${f.path}')`
-              fileContext += `- \`${fn}\`\n`
-              if (f.ext === 'xlsx' || f.ext === 'xlsx_dir') {
-                fileContext += `  NOTE: all_varchar=true is set — every column is VARCHAR to preserve mixed-type cells.\n`
-                fileContext += `  Use TRY_CAST(col AS DOUBLE) / TRY_CAST(col AS INTEGER) for numeric operations.\n`
-              }
-            }
-            if (f.columns && f.columns.length > 0) {
-              fileContext += `  Columns: ${f.columns.map((c) => `\`${c}\``).join(', ')}\n`
-            }
-          }
-        } else {
-          fileContext = '## Attached Data Files\nUse EXACTLY these absolute paths in your query JSON:\n'
-          for (const f of allFiles) {
-            const kind =
-              f.ext === 'csv' || f.ext === 'tsv' || f.ext === 'csv_dir' ? 'csv' :
-              f.ext === 'parquet_dir' ? 'parquet_dir' : 'parquet'
-            fileContext += `- Path: \`${f.path}\` → source type: \`"${kind}"\`\n`
-            if (f.columns && f.columns.length > 0) {
-              fileContext += `  Columns: ${f.columns.map((c) => `\`${c}\``).join(', ')}\n`
-            }
-          }
-        }
-      }
-
       // Auto-inject the engine skill; preserve all other non-engine skills the user has active
       const engineSkillId = engine === 'duckdb' ? 'duckdb-engine' : 'blazer-engine'
       const userActiveSkills = settings.active_skills ?? ['blazer-engine']
@@ -327,10 +371,10 @@ export function useChat(settings: AppSettings, engine: Engine = 'blazer') {
         (settings.custom_skills ?? []).map((s) => ({ ...s, builtIn: false as const })),
       )
 
-      // Optionally inject follow-up suggestions instruction
-      // Skip for local/custom endpoints — they have tight context windows and often can't follow the format
+      // Optionally inject follow-up suggestions instruction (all providers including Ollama —
+      // modern local models handle the format fine, and a parse failure is silent/graceful)
       const showChips = settings.show_follow_up_chips !== false
-      const suggestionsInstruction = showChips && !isLocalEndpoint
+      const suggestionsInstruction = showChips
         ? '\n\nIMPORTANT: At the very end of EVERY response, you MUST append exactly this block with no extra text after it:\n<suggestions>["short question 1","short question 2","short question 3"]</suggestions>\nRules: replace the placeholder strings with 3 real follow-up questions (each ≤6 words) relevant to the current analysis. Do not explain the block. Do not skip it.'
         : ''
 
@@ -368,7 +412,57 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
       if (skillPrompt || suggestionsInstruction || agenticInstruction) {
         apiMessages.push({ role: 'system', content: (skillPrompt ?? '') + suggestionsInstruction + agenticInstruction })
       }
-      if (fileContext) apiMessages.push({ role: 'system', content: fileContext })
+
+      // File context — MUST be placed here (before history) so all system messages come first.
+      // Placing a system message AFTER user/assistant history confuses Ollama/local models.
+      //
+      // DuckDB engine: rich metadata block with exact reader expressions, schema, and row counts.
+      //   This supersedes the legacy per-engine fileContext — only one injection is needed.
+      // Blazer engine: simple path+type block (Blazer uses JSON query plans, not SQL readers).
+      if (allFiles.length > 0) {
+        if (engine === 'duckdb') {
+          const fileBlocks = allFiles.map((f) => {
+            const reader = f.readerExpr ?? readExpr(f)
+            const lines: string[] = [
+              // Reader expression first — copy it exactly into FROM / DESCRIBE / etc.
+              `Reader: ${reader}  ← USE THIS EXACTLY in SQL (e.g. SELECT * FROM ${reader})`,
+              `Path: ${f.path}`,
+            ]
+            if (f.rowCount != null) lines.push(`Rows: ${f.rowCount.toLocaleString()}`)
+            if (f.columns && f.columns.length > 0) {
+              const colList = f.columns.map((c) => {
+                const t = f.columnTypes?.[c]
+                return t ? `${c} (${t})` : c
+              }).join(', ')
+              lines.push(`Columns (${f.columns.length}): ${colList}`)
+            } else {
+              lines.push('Schema: not yet profiled — run describe_tables first')
+            }
+            if (f.ext === 'xlsx' || f.ext === 'xlsx_dir') {
+              lines.push('NOTE: all_varchar=true — use TRY_CAST(col AS DOUBLE) for numeric ops')
+            }
+            return lines.map((l, i) => (i === 0 ? `• ${l}` : `  ${l}`)).join('\n')
+          }).join('\n\n')
+
+          apiMessages.push({
+            role: 'system',
+            content: `## Attached Data Files\nCopy the reader expression EXACTLY as shown — do NOT retype the path, do not shorten it, do not invent a table name.\n\n${fileBlocks}`,
+          })
+        } else {
+          // Blazer engine — simple path + source type
+          let blazerCtx = '## Attached Data Files\nUse EXACTLY these absolute paths in your query JSON:\n'
+          for (const f of allFiles) {
+            const kind =
+              f.ext === 'csv' || f.ext === 'tsv' || f.ext === 'csv_dir' ? 'csv' :
+              f.ext === 'parquet_dir' ? 'parquet_dir' : 'parquet'
+            blazerCtx += `- Path: \`${f.path}\` → source type: \`"${kind}"\`\n`
+            if (f.columns && f.columns.length > 0) {
+              blazerCtx += `  Columns: ${f.columns.map((c) => `\`${c}\``).join(', ')}\n`
+            }
+          }
+          apiMessages.push({ role: 'system', content: blazerCtx })
+        }
+      }
 
       // Active connection context
       if (opts?.activeConnections && opts.activeConnections.length > 0) {
@@ -435,15 +529,6 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
         if (isEmptyAssistant || isErrorMsg) continue
         apiMessages.push({ role: m.role, content: m.content })
       }
-      // Inject a path reminder system message immediately before the user turn so the LLM
-      // always has the exact paths fresh in context regardless of conversation length.
-      if (allFiles.length > 0) {
-        const pathLines = allFiles.map((f) => `  • ${f.path}`).join('\n')
-        apiMessages.push({
-          role: 'system',
-          content: `## File Path Reminder\nThe following exact paths are loaded — copy them character-for-character, never guess or paraphrase:\n${pathLines}`,
-        })
-      }
       apiMessages.push({ role: 'user', content: content })
 
       const now = Date.now()
@@ -497,11 +582,12 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
           listen<{ stream_id: string; chunk: string }>('llm-chunk', (event) => {
             if (event.payload.stream_id !== turnStreamId) return
             streamingRef.current += event.payload.chunk
+            const displayContent = stripModelTokens(streamingRef.current)
             setMessages((prev) => {
               const updated = [...prev]
               const last = updated[updated.length - 1]
               if (last?.role === 'assistant') {
-                updated[updated.length - 1] = { ...last, content: streamingRef.current }
+                updated[updated.length - 1] = { ...last, content: displayContent }
               }
               return updated
             })
@@ -510,11 +596,18 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
           listen<{ stream_id: string; tool_calls: Array<{ id: string; name: string; arguments: string }>; assistant_text: string }>('llm-tool-calls', (event) => {
             if (event.payload.stream_id !== turnStreamId) return
             cacheToolCallSupport(provider, providerCfg.model, true)
-            toolCallPayload = { toolCalls: event.payload.tool_calls, assistantText: event.payload.assistant_text }
+
+            // Assign stable IDs once here so running chips and execution records share the same ID.
+            const batchBase = `tc-${Date.now()}`
+            const assignedToolCalls = event.payload.tool_calls.map((tc, idx) => ({
+              ...tc,
+              id: tc.id || `${batchBase}-${idx}`,
+            }))
+            toolCallPayload = { toolCalls: assignedToolCalls, assistantText: event.payload.assistant_text }
 
             // Mark running chips on current assistant message
-            const runningRecords: ToolCallRecord[] = event.payload.tool_calls.map((tc) => ({
-              id: tc.id || `tc-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            const runningRecords: ToolCallRecord[] = assignedToolCalls.map((tc) => ({
+              id: tc.id,
               name: tc.name,
               arguments: (() => { try { return JSON.parse(tc.arguments) } catch { return {} } })(),
               status: 'running' as const,
@@ -539,6 +632,8 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
               resolve(toolCallPayload)
             }
           }).then((u) => { unlistenEnd = u })
+
+          appLog.info('llm', `Sending to ${provider} · ${providerCfg.model}`, { messages: turnMessages.length, content_preview: (typeof (turnMessages[turnMessages.length - 1] as any)?.content === 'string' ? (turnMessages[turnMessages.length - 1] as any).content as string : '').slice(0, 120) })
 
           invoke('stream_llm', {
             args: {
@@ -588,8 +683,45 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
               const toolCallPayload = await runStreamTurn(currentMessages, turnStreamId, sendToolsThisTurn)
 
               if (!toolCallPayload || toolCallPayload.toolCalls.length === 0) {
-                // No tool calls — stamp final content and break
+                // No tool calls — stamp final content and break.
+                // If this was the first turn and we sent tools but got plain text
+                // back, the model doesn't support tool calling. Cache it so we
+                // don't keep sending schemas for the rest of the session.
+                if (sendToolsThisTurn && currentDepth === toolCallDepth) {
+                  cacheToolCallSupport(provider, providerCfg.model, false)
+                }
+
+                // Synthesis turn: if the model ran tools but produced no text,
+                // fire one extra text-only turn to force it to write the response.
+                // This handles models (especially GPT-4o) that stop after tool calls
+                // without ever writing a user-visible answer.
+                if (
+                  !cancelled &&
+                  allToolCalls.length > 0 &&
+                  !stripModelTokens(streamingRef.current).trim()
+                ) {
+                  const synthStreamId = `stream-synth-${Date.now()}-${Math.random().toString(36).slice(2)}`
+                  // Fresh accumulator so only the synthesis text appears in the bubble
+                  streamingRef.current = ''
+                  const synthContent = opts?.isAutoProfile
+                    ? 'Based on all the tool results above, write the data profile summary now. Do not call any more tools — write the analysis as plain text: what the data represents, row/column counts, key columns, data quality issues, and 3 analytical questions. 4-6 paragraphs, cite specific numbers.'
+                    : 'You have the SQL results above. Now write your analysis in plain text — do NOT call any more tools. Answer the user\'s question directly with specific numbers from the results. Highlight key findings, patterns, or anomalies. Be concise and specific.'
+                  await runStreamTurn(
+                    [
+                      ...currentMessages,
+                      {
+                        role: 'user' as const,
+                        content: synthContent,
+                      },
+                    ],
+                    synthStreamId,
+                    false, // no tools — text-only turn
+                  )
+                }
+
                 const duration_ms = Date.now() - requestStart
+
+                appLog.info('llm', 'Response received', { duration_ms, chars: streamingRef.current.length })
 
                 // We need to get current tokens — re-listen to llm-end was done inside runStreamTurn
                 // but we didn't capture tokens_in/tokens_out. For now pass undefined.
@@ -597,7 +729,7 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
                   const updated = [...prev]
                   const last = updated[updated.length - 1]
                   if (last?.role === 'assistant') {
-                    const raw = last.content
+                    const raw = stripModelTokens(last.content)
                     const suggestionsMatch =
                       raw.match(/\n?<suggestions>([\s\S]*?)<\/suggestions>/) ??
                       raw.match(/\n?<suggestions>([\s\S]*)$/)
@@ -636,40 +768,77 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
                 break
               }
 
-              // Execute tool calls and update chips
+              // Execute tool calls — run all in parallel so chips complete as fast
+              // as possible and each chip flips to success/error individually.
               const rawToolCalls = toolCallPayload.toolCalls
               const assistantText = toolCallPayload.assistantText
 
-              const completedRecords: ToolCallRecord[] = []
-              for (const tc of rawToolCalls) {
-                const tcId = tc.id || `tc-${Date.now()}-${Math.random().toString(36).slice(2)}`
-                const parsedArgs: Record<string, unknown> = (() => { try { return JSON.parse(tc.arguments) } catch { return {} } })()
-                const start = Date.now()
-                const result = await executeToolCall(tc.name, parsedArgs)
-                const duration_ms = Date.now() - start
-                const isError = result && typeof result === 'object' && (result as any).success === false
-                completedRecords.push({
-                  id: tcId,
-                  name: tc.name,
-                  arguments: parsedArgs,
-                  result,
-                  duration_ms,
-                  status: isError ? 'error' : 'success',
-                })
-              }
-              allToolCalls = [...allToolCalls, ...completedRecords]
+              const completedRecords: ToolCallRecord[] = await Promise.all(
+                rawToolCalls.map(async (tc) => {
+                  // IDs were already assigned in the llm-tool-calls event handler
+                  const tcId = tc.id
+                  const parsedArgs: Record<string, unknown> = (() => {
+                    try { return JSON.parse(tc.arguments) } catch { return {} }
+                  })()
+                  appLog.info('tool', `Tool call: ${tc.name}`, { args: JSON.stringify(parsedArgs).slice(0, 200) })
+                  const start = Date.now()
+                  const result = await executeToolCall(tc.name, parsedArgs, allFiles)
+                  const duration_ms = Date.now() - start
+                  appLog.info('tool', `Tool result: ${tc.name}`, { result: JSON.stringify(result).slice(0, 200) })
+                  const isError = result && typeof result === 'object' && (result as any).success === false
 
-              // Update the assistant message with completed tool call records
-              setMessages((prev) => {
-                const updated = [...prev]
-                const last = updated[updated.length - 1]
-                if (last?.role === 'assistant') {
-                  // Replace running records with completed ones (match by name order)
-                  const existingCompleted = (last.toolCalls ?? []).filter((tc) => tc.status !== 'running')
-                  updated[updated.length - 1] = { ...last, toolCalls: [...existingCompleted, ...completedRecords] }
-                }
-                return updated
-              })
+                  const record: ToolCallRecord = {
+                    id: tcId,
+                    name: tc.name,
+                    arguments: parsedArgs,
+                    result,
+                    duration_ms,
+                    status: isError ? 'error' : 'success',
+                  }
+
+                  // Flip this chip to done immediately — don't wait for siblings
+                  setMessages((prev) => {
+                    const updated = [...prev]
+                    const last = updated[updated.length - 1]
+                    if (last?.role === 'assistant' && last.toolCalls) {
+                      updated[updated.length - 1] = {
+                        ...last,
+                        toolCalls: last.toolCalls.map((c) => c.id === tcId ? record : c),
+                      }
+                    }
+                    return updated
+                  })
+
+                  // Log SQL-producing tool calls to query history
+                  if (result && typeof result === 'object') {
+                    const r = result as Record<string, unknown>
+                    const sql = (r['sql_executed'] ?? r['sql_attempted']) as string | undefined
+                    if (sql) {
+                      const rowCount = (r['row_count'] as number | undefined) ?? 0
+                      const cols     = Array.isArray(r['columns']) ? (r['columns'] as unknown[]).length : 0
+                      const errorMsg = r['error'] as string | undefined
+                      const historyEntry: Omit<QueryHistoryEntry, 'id'> = {
+                        engine:      'duckdb',
+                        query:       sql,
+                        timestamp:   start,
+                        success:     !isError,
+                        duration_ms,
+                        rows:        rowCount,
+                        cols,
+                        error:       errorMsg,
+                      }
+                      if (onHistoryEntry) {
+                        onHistoryEntry(historyEntry)
+                      } else {
+                        dbAddHistoryEntry({ id: `tool-${tcId}`, ...historyEntry }).catch(console.error)
+                      }
+                    }
+                  }
+
+                  return record
+                }),
+              )
+              allToolCalls = [...allToolCalls, ...completedRecords]
 
               // Build continuation messages
               const continuationToolCalls = completedRecords.map((tc) => ({
@@ -684,7 +853,8 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
               }
               const toolResultMsgs = completedRecords.map((tc) => ({
                 role: 'tool',
-                content: JSON.stringify(tc.result),
+                // Truncated to avoid filling the context window on small local models
+                content: buildToolResultContent(tc),
                 tool_call_id: tc.id,
               }))
 
@@ -692,6 +862,118 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
               currentDepth += 1
               // Reset streaming accumulator for the next turn (content appended onto same message)
               // We do NOT reset streamingRef — we want to APPEND to the existing content
+            }
+
+            // ── Metadata caching from tool results ─────────────────────────────
+            // Runs after EVERY agentic turn (not just auto-profile) so schema,
+            // column types, and row counts are always persisted onto the
+            // AttachedFile objects and injected into subsequent turns.
+            if (allToolCalls.length > 0) {
+              // Accumulate per-path updates
+              const pathToColumns  = new Map<string, string[]>()
+              const pathToTypes    = new Map<string, Record<string, string>>()
+              const pathToRowCount = new Map<string, number>()
+              // When describe_tables returns a specific file path that lives inside
+              // a loaded folder, store the correct reader so the folder's default
+              // (e.g. read_parquet) is overridden with the actual type (e.g. read_json_auto).
+              const pathToReaderExpr = new Map<string, string>()
+
+              for (const tc of allToolCalls) {
+                const r = tc.result as Record<string, unknown> | null
+                if (!r || r['success'] === false) continue
+
+                if (tc.name === 'describe_tables') {
+                  // { tables: [{name, columns: [{name, type}]}] }
+                  const tables = r['tables'] as Array<{
+                    name: string
+                    columns: Array<{ name: string; type: string }>
+                  }> | undefined
+                  if (Array.isArray(tables)) {
+                    for (const t of tables) {
+                      if (!t.name || !Array.isArray(t.columns) || t.columns.length === 0) continue
+                      pathToColumns.set(t.name, t.columns.map((c) => c.name))
+                      const types: Record<string, string> = {}
+                      for (const c of t.columns) types[c.name] = c.type ?? ''
+                      pathToTypes.set(t.name, types)
+
+                      // If t.name is a file INSIDE a loaded folder (not the folder itself),
+                      // derive the correct reader from the file's extension and store it
+                      // on the parent folder so future turns use the right reader.
+                      const parentFolder = allFiles.find(
+                        (f) => f.path !== t.name && t.name.startsWith(f.path),
+                      )
+                      if (parentFolder) {
+                        // Only override if it differs from the current reader to avoid noise
+                        const derived = readerForPath(t.name)
+                        const current = parentFolder.readerExpr ?? readExpr(parentFolder)
+                        if (derived !== current) pathToReaderExpr.set(parentFolder.path, derived)
+                        // Also map columns/types to the folder (so it gets the schema too)
+                        pathToColumns.set(parentFolder.path, t.columns.map((c) => c.name))
+                        pathToTypes.set(parentFolder.path, types)
+                      }
+                    }
+                  }
+
+                } else if (tc.name === 'column_stats') {
+                  // { table, column_profiles: [{column, total_count, ...}] }
+                  const tablePath = String(r['table'] ?? tc.arguments['table'] ?? '')
+                  const profiles = r['column_profiles'] as Array<{ column: string; total_count?: number }> | undefined
+                  if (Array.isArray(profiles) && profiles.length > 0) {
+                    const totalCount = profiles[0].total_count
+                    if (totalCount != null && tablePath) {
+                      const match = allFiles.find(
+                        (f) => tablePath === f.path || tablePath.includes(f.path) || f.path.includes(tablePath),
+                      )
+                      if (match) pathToRowCount.set(match.path, totalCount)
+                    }
+                    // Extract column names if not already from describe
+                    if (tablePath && !pathToColumns.has(tablePath)) {
+                      const match = allFiles.find(
+                        (f) => tablePath === f.path || tablePath.includes(f.path) || f.path.includes(tablePath),
+                      )
+                      if (match) {
+                        pathToColumns.set(match.path, profiles.map((p) => p.column))
+                      }
+                    }
+                  }
+
+                } else if (tc.name === 'get_sample_rows' || tc.name === 'run_sql') {
+                  // { columns: ["col1", ...], row_count?, ... }
+                  const cols = r['columns'] as string[] | undefined
+                  const rowCount = r['row_count'] as number | undefined
+                  const tablePath = String(
+                    tc.arguments['table'] ?? tc.arguments['sql'] ?? '',
+                  )
+                  // Match against a loaded file by path substring
+                  const match = allFiles.find(
+                    (f) => tablePath.includes(f.path) || f.path.includes(tablePath),
+                  )
+                  if (match) {
+                    if (Array.isArray(cols) && cols.length > 0) pathToColumns.set(match.path, cols)
+                    if (rowCount != null) pathToRowCount.set(match.path, rowCount)
+                  }
+                }
+              }
+
+              // Merge discovered metadata onto AttachedFile objects
+              const hasUpdates = pathToColumns.size > 0 || pathToTypes.size > 0 || pathToRowCount.size > 0 || pathToReaderExpr.size > 0
+              if (hasUpdates) {
+                setLoadedFiles((prev) =>
+                  prev.map((f) => {
+                    let updated = f
+                    const cols       = pathToColumns.get(f.path)
+                    const types      = pathToTypes.get(f.path)
+                    const rowCount   = pathToRowCount.get(f.path)
+                    const readerExpr = pathToReaderExpr.get(f.path)
+                    if (cols && cols.length > 0)                  updated = { ...updated, columns: cols }
+                    if (types && Object.keys(types).length > 0)   updated = { ...updated, columnTypes: types }
+                    if (rowCount != null)                          updated = { ...updated, rowCount }
+                    if (readerExpr)                                updated = { ...updated, readerExpr }
+                    if (updated !== f) dbSaveFile(updated).catch(console.error)
+                    return updated
+                  }),
+                )
+              }
             }
 
             stopStreamRef.current = null
@@ -702,6 +984,7 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
           }
         })
       } catch (err: any) {
+        appLog.error('llm', `LLM error: ${String(err)}`)
         setMessages((prev) => {
           const updated = [...prev]
           const last = updated[updated.length - 1]
@@ -764,4 +1047,7 @@ You are a data analysis agent operating in a step-by-step execution loop. After 
 
   return { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, hideLastMessage, loadedFiles, addFiles, replaceFile, removeFile }
 }
+
+// Exported for testing only
+export { extractSqlStatements, normalizeFenceMarkers, sqlLooksIncomplete, splitMultiStatementBlocks }
 

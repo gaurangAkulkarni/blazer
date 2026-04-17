@@ -755,6 +755,16 @@ export function SettingsPanel({ settings, onUpdate, onClose }: Props) {
                       <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 leading-relaxed">
                         Let the AI call data analysis tools directly. Auto-profiling requires this.
                       </div>
+                      {/* Warn when an OpenAI reasoning model (o1/o3/o4) is active — they sometimes
+                          write SQL in code blocks instead of calling run_sql despite the prompt. */}
+                      {settings.tool_calling_enabled !== false &&
+                        settings.active_provider === 'openai' &&
+                        /^o[1-9]/.test(settings.openai?.model ?? '') && (
+                        <div className="flex items-center gap-1 mt-1 text-[10.5px] text-amber-600 dark:text-amber-400">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                          Reasoning model — may write SQL in code blocks instead of calling tools
+                        </div>
+                      )}
                     </div>
                     <button
                       role="switch"

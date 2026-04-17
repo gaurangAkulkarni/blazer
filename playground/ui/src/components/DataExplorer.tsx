@@ -519,20 +519,24 @@ export function DataExplorer({ file, onClose }: Props) {
                           const cell = formatCell(v)
                           return (
                             <td key={col.name}
-                              className={`px-4 py-2 whitespace-nowrap border-b border-gray-50
-                                dark:border-gray-800/60 max-w-xs ${
-                                  isNull
-                                    ? 'text-gray-300 dark:text-gray-700 italic'
-                                    : isNum
-                                      ? 'text-right font-mono text-blue-700 dark:text-blue-400'
-                                      : 'text-gray-700 dark:text-gray-300'
-                                }`}>
-                              {isNull
-                                ? <span className="text-[10px]">null</span>
-                                : cell.length > 64
-                                  ? <span title={cell} className="cursor-help">{cell.slice(0, 62)}…</span>
-                                  : cell
-                              }
+                              className={`px-4 py-2 border-b border-gray-50 dark:border-gray-800/60 ${
+                                isNull
+                                  ? 'text-gray-300 dark:text-gray-700 italic'
+                                  : isNum
+                                    ? 'text-right font-mono text-blue-700 dark:text-blue-400'
+                                    : 'text-gray-700 dark:text-gray-300'
+                              }`}>
+                              {/* Wrapper div enforces max-width + truncation.
+                                  overflow:hidden on <td> itself is ignored by browsers
+                                  unless table-layout:fixed is set — the div is the fix. */}
+                              <div
+                                className={`overflow-hidden text-ellipsis whitespace-nowrap ${
+                                  isNum ? 'min-w-[50px] text-right' : 'max-w-[200px]'
+                                }`}
+                                title={isNull ? undefined : cell}
+                              >
+                                {isNull ? <span className="text-[10px]">null</span> : cell}
+                              </div>
                             </td>
                           )
                         })}

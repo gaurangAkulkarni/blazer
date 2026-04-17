@@ -44,7 +44,7 @@ export function getToolSchemas(): ToolSchema[] {
         parameters: {
           type: 'object',
           properties: {
-            table: { type: 'string', description: 'Table name or file path' },
+            table: { type: 'string', description: 'Table name or reader expression. Pass the raw file path (e.g. /data/file.parquet) — do NOT wrap in read_parquet() here, the tool does that automatically. For glob patterns use the path directly: /data/**/*.parquet' },
             n: { type: 'number', description: 'Number of rows (default 10)' },
           },
           required: ['table'],
@@ -59,7 +59,7 @@ export function getToolSchemas(): ToolSchema[] {
         parameters: {
           type: 'object',
           properties: {
-            table: { type: 'string', description: 'Table name or file path' },
+            table: { type: 'string', description: 'Table name or raw file path (e.g. /data/file.parquet or /data/**/*.parquet). Do NOT wrap in read_parquet() — the tool handles that automatically.' },
             columns: { type: 'array', items: { type: 'string' }, description: 'Columns to profile (omit for all)' } as any,
           },
           required: ['table'],

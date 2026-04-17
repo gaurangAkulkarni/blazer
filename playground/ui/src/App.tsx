@@ -27,6 +27,9 @@ import type { Skill } from './lib/skills'
 import { ConnectionsContext } from './lib/ConnectionsContext'
 import type { ConnectionAlias } from './lib/types'
 import { buildAutoProfilePrompt } from './lib/autoProfile'
+import { appLog } from './lib/appLog'
+import { dbAppendLog, dbGetLogs, dbFlushOldLogs } from './lib/db'
+import { LogPanel } from './components/LogPanel/LogPanel'
 
 // ── Agentic result context builder ───────────────────────────────────────────
 // Builds a rich markdown representation of query results to send back to the
@@ -95,7 +98,9 @@ export default function App() {
     setConsoleEngineState(e)
   }, [setConsoleEngineState])
 
-  const { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, hideLastMessage, loadedFiles, replaceFile, removeFile } = useChat(settings, chatEngine)
+  const { history: queryHistory, addEntry: addHistoryEntry, removeEntry: removeHistoryEntry, clearHistory } = useQueryHistory()
+
+  const { messages, sendMessage, isStreaming, stopStream, addQueryResult, clearMessages, patchLastMessage, hideLastMessage, loadedFiles, addFiles, replaceFile, removeFile } = useChat(settings, chatEngine, addHistoryEntry)
 
   const [activeConnections, setActiveConnections] = useState<ConnectionAlias[]>([])
 
@@ -142,6 +147,35 @@ export default function App() {
   const [visibleRunId, setVisibleRunId] = useState<string | null>(null)
   const [planPanelVisible, setPlanPanelVisible] = useState(true)
 
+  // ── Log terminal panel (VS Code-style bottom drawer) ─────────────────────────
+  const [logPanelOpen, setLogPanelOpen] = usePersistedState<boolean>('blazer_log_panel_open', false)
+  const [logPanelHeight, setLogPanelHeight] = usePersistedState<number>('blazer_log_panel_height', 220)
+  const logResizingRef = useRef(false)
+  const logResizeStartYRef = useRef(0)
+  const logResizeStartHRef = useRef(0)
+
+  const handleLogResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    logResizingRef.current = true
+    logResizeStartYRef.current = e.clientY
+    logResizeStartHRef.current = logPanelHeight
+
+    const onMove = (ev: MouseEvent) => {
+      if (!logResizingRef.current) return
+      // Dragging UP → panel grows (delta is negative clientY change)
+      const delta = logResizeStartYRef.current - ev.clientY
+      const next = Math.max(100, Math.min(600, logResizeStartHRef.current + delta))
+      setLogPanelHeight(next)
+    }
+    const onUp = () => {
+      logResizingRef.current = false
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [logPanelHeight, setLogPanelHeight])
+
   // Refs — stable values accessible inside callbacks without stale closures
   const agenticActiveRef = useRef(false)
   const agenticRunIdRef = useRef<string>('')
@@ -160,7 +194,8 @@ export default function App() {
 
   const MAX_AGENTIC_ITER = 10
 
-  const stopAgenticLoop = useCallback(() => {
+  const stopAgenticLoop = useCallback((reason: 'complete' | 'max_iterations' | 'error' | 'user' = 'complete') => {
+    appLog.info('agentic', 'Loop ended', { reason, runId: agenticRunIdRef.current })
     agenticActiveRef.current = false
     setAgenticActive(false)
     if (agenticDebounceRef.current) {
@@ -228,7 +263,6 @@ export default function App() {
   }, [])
   const [replayRequest, setReplayRequest] = useState<ReplayRequest | undefined>(undefined)
 
-  const { history: queryHistory, addEntry: addHistoryEntry, removeEntry: removeHistoryEntry, clearHistory } = useQueryHistory()
   const { snippets, addSnippet, updateSnippet, removeSnippet, clearSnippets, groups: snippetGroups, addGroup, renameGroup, removeGroup } = useSnippets()
   const { schemas, fetchSchema, fetchAll } = useSchema()
   const { profiles, profileFile } = useProfiler()
@@ -288,13 +322,14 @@ export default function App() {
         agenticIterationRef.current += 1
         setAgenticIteration(agenticIterationRef.current)
         if (agenticIterationRef.current >= MAX_AGENTIC_ITER) {
-          stopAgenticLoop()
+          stopAgenticLoop('max_iterations')
           return
         }
 
         if (failedItem) {
           setAgenticStepError(true)
           const lang = failedItem.engine === 'duckdb' ? 'sql' : 'json'
+          appLog.warn('agentic', `Step error — query failed, retrying`, { query: failedItem.query?.slice(0, 120), error: failedItem.result.error })
           sendMessageRef.current(
             `The query returned an error:\n\n\`\`\`${lang}\n${failedItem.query}\n\`\`\`\n\nError:\n\`\`\`\n${failedItem.result.error ?? 'Unknown error'}\n\`\`\`\n\nDiagnose the error, fix the SQL, and output the corrected query.`,
             undefined, undefined, { agenticContinuation: true, agenticRunId: agenticRunIdRef.current },
@@ -308,6 +343,8 @@ export default function App() {
           const nextStep = Math.min(agenticCurrentStepRef.current + 1, Math.max(totalSteps - 1, 0))
           agenticCurrentStepRef.current = nextStep
           setAgenticCurrentStep(nextStep)
+          const stepText = agenticPlanStepsRef.current[nextStep]
+          appLog.info('agentic', `Step ${nextStep + 1}/${totalSteps}`, { step_text: stepText })
 
           // Build a rich result context so the LLM can reason from actual data
           const resultContext = buildAgenticResultContext(pending)
@@ -366,7 +403,7 @@ export default function App() {
         hideLastMessage()
         agenticIterationRef.current += 1
         setAgenticIteration(agenticIterationRef.current)
-        if (agenticIterationRef.current >= MAX_AGENTIC_ITER) { stopAgenticLoop(); return }
+        if (agenticIterationRef.current >= MAX_AGENTIC_ITER) { stopAgenticLoop('max_iterations'); return }
         sendMessageRef.current(
           `Please write your complete final assessment — summarise all findings, key insights, and recommendations from the data you analysed. Then end with DONE.`,
           undefined, undefined, { agenticContinuation: true, agenticRunId: agenticRunIdRef.current },
@@ -378,7 +415,7 @@ export default function App() {
       patchLastMessage({ content: beforeDone })
       setAgenticCurrentStep(agenticPlanStepsRef.current.length)
       agenticCurrentStepRef.current = agenticPlanStepsRef.current.length
-      stopAgenticLoop()
+      stopAgenticLoop('complete')
       return
     }
 
@@ -407,7 +444,7 @@ export default function App() {
       if (!hasSql && (atFinalStep || isFinalReport)) {
         setAgenticCurrentStep(agenticPlanStepsRef.current.length)
         agenticCurrentStepRef.current = agenticPlanStepsRef.current.length
-        stopAgenticLoop()
+        stopAgenticLoop('complete')
         return
       }
     }
@@ -420,13 +457,14 @@ export default function App() {
       if (!hasSql && !queryRanThisTurn) {
         agenticIterationRef.current += 1
         setAgenticIteration(agenticIterationRef.current)
-        if (agenticIterationRef.current >= MAX_AGENTIC_ITER) { stopAgenticLoop(); return }
+        if (agenticIterationRef.current >= MAX_AGENTIC_ITER) { stopAgenticLoop('max_iterations'); return }
 
         const totalSteps = agenticPlanStepsRef.current.length
         const nextStep = Math.min(agenticCurrentStepRef.current + 1, Math.max(totalSteps - 1, 0))
         agenticCurrentStepRef.current = nextStep
         setAgenticCurrentStep(nextStep)
         setAgenticStepError(false)
+        appLog.info('agentic', `Step ${nextStep + 1}/${totalSteps} (text-only)`, { step_text: agenticPlanStepsRef.current[nextStep] })
 
         sendMessageRef.current(
           `Continue toward the goal. When ALL steps are fully complete and the objective is achieved, respond with only: DONE`,
@@ -471,7 +509,8 @@ export default function App() {
     (content: string, attachments?: AttachedFile[], perMessageSkillIds?: string[]) => {
       if (agenticMode) {
         agenticActiveRef.current = true
-        agenticRunIdRef.current = crypto.randomUUID()
+        const runId = crypto.randomUUID()
+        agenticRunIdRef.current = runId
         agenticIterationRef.current = 0
         agenticCurrentStepRef.current = 0
         agenticPlanStepsRef.current = []
@@ -481,7 +520,8 @@ export default function App() {
         setAgenticPlanSteps([])
         setAgenticStepError(false)
         setAgenticIteration(0)
-        sendMessage(content, attachments, perMessageSkillIds, { agenticMode: true, activeConnections, agenticRunId: agenticRunIdRef.current })
+        appLog.info('agentic', 'Loop started', { runId })
+        sendMessage(content, attachments, perMessageSkillIds, { agenticMode: true, activeConnections, agenticRunId: runId })
       } else {
         sendMessage(content, attachments, perMessageSkillIds, { activeConnections })
       }
@@ -489,16 +529,51 @@ export default function App() {
     [agenticMode, sendMessage, activeConnections],
   )
 
+  // ── App log startup wiring ────────────────────────────────────────────────────
+  useEffect(() => {
+    // Wire DB persistence for all future log entries
+    appLog.setDbPersist((e) => dbAppendLog(e).catch(console.error))
+
+    // Flush old entries, then load recent logs from DB and replay into in-memory buffer
+    dbFlushOldLogs().catch(console.error)
+    dbGetLogs(2000)
+      .then((rows) => appLog.replayFromDb(rows))
+      .catch(console.error)
+
+    appLog.info('app', 'Application started')
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Data Analyst skill auto-activation ──────────────────────────────────────
+  // Spec §5: automatically add the data-analyst built-in skill to active_skills
+  // when tool calling is ON, and remove it when tool calling is turned OFF.
+  // We intentionally only depend on tool_calling_enabled + loaded so we don't
+  // create an infinite loop on every skills-list change.
+  useEffect(() => {
+    if (!loaded) return
+    const toolCallingOn = settings.tool_calling_enabled !== false
+    const currentSkills: string[] = settings.active_skills ?? []
+    const hasDataAnalyst = currentSkills.includes('data-analyst')
+
+    if (toolCallingOn && !hasDataAnalyst) {
+      updateSettings({ active_skills: [...currentSkills, 'data-analyst'] })
+    } else if (!toolCallingOn && hasDataAnalyst) {
+      updateSettings({ active_skills: currentSkills.filter((id) => id !== 'data-analyst') })
+    }
+  }, [settings.tool_calling_enabled, loaded]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Auto-profile handler ─────────────────────────────────────────────────────
   // Fires when new files are attached to InputBar (with 500ms debounce applied there).
   // Sends a data profiling prompt using the data-analyst skill with tool calling.
   const handleAutoProfile = useCallback(
     (files: AttachedFile[]) => {
-      if (settings.tool_calling_enabled === false) return
+      if (settings.tool_calling_enabled === false) {
+        addFiles(files)
+        return
+      }
       const prompt = buildAutoProfilePrompt(files)
       sendMessage(prompt, files, ['data-analyst'], { isAutoProfile: true, activeConnections })
     },
-    [settings.tool_calling_enabled, sendMessage, activeConnections],
+    [settings.tool_calling_enabled, sendMessage, addFiles, activeConnections],
   )
 
   // ── Resizable split pane ────────────────────────────────────────────────────
@@ -587,6 +662,21 @@ export default function App() {
           <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700">
             {providerLabel} · {activeModel}
           </span>
+          {/* Log terminal toggle — lights up when open */}
+          <button
+            onClick={() => setLogPanelOpen((v) => !v)}
+            title={logPanelOpen ? 'Hide log terminal' : 'Show log terminal'}
+            className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded font-mono font-medium transition border ${
+              logPanelOpen
+                ? 'bg-gray-900 dark:bg-gray-100 text-gray-100 dark:text-gray-900 border-gray-700 dark:border-gray-300'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:text-gray-900 dark:hover:text-gray-100 hover:border-gray-400 dark:hover:border-gray-500'
+            }`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+            </svg>
+            Logs
+          </button>
         </div>
         <div className="flex items-center gap-1.5">
           {!hasApiKey && (
@@ -908,9 +998,27 @@ export default function App() {
                   onAddConnection={addConnection}
                   onRemoveConnection={removeConnection}
                   isStreaming={isStreaming}
-                  onStop={() => { stopStream(); stopAgenticLoop() }}
+                  onStop={() => { stopStream(); stopAgenticLoop('user') }}
                   onAutoProfile={handleAutoProfile}
                 />
+
+                {/* ── Log terminal — VS Code-style bottom drawer ───────────── */}
+                {logPanelOpen && (
+                  <div
+                    className="shrink-0 flex flex-col border-t border-gray-800 bg-gray-950"
+                    style={{ height: logPanelHeight }}
+                  >
+                    {/* Drag-to-resize handle at top */}
+                    <div
+                      onMouseDown={handleLogResizeMouseDown}
+                      className="shrink-0 h-1 cursor-row-resize bg-gray-800 hover:bg-blue-500 transition-colors group relative"
+                      title="Drag to resize"
+                    />
+                    <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                      <LogPanel />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

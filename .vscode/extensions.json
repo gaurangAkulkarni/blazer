@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    // TypeScript / Vitest
+    "vitest.explorer",
+
+    // Rust
+    "rust-lang.rust-analyzer",
+
+    // General
+    "ms-vscode.test-adapter-converter"
+  ]
+}
