@@ -99,7 +99,7 @@ jobs:
             - Schema explorer, query history, snippet library
 
             > **Note:** Blazer Engine (MLX) is a separate component — only the DuckDB engine ships in this release.
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           projectPath: playground
           args: ${{ matrix.args }}
