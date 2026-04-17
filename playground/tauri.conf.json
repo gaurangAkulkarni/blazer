@@ -1,6 +1,6 @@
 {
   "productName": "Blazer",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "identifier": "io.github.gaurangAkulkarni.blazer",
   "build": {
     "beforeDevCommand": { "script": "npm run dev", "cwd": "ui" },
